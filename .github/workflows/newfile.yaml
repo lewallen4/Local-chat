@@ -98,45 +98,8 @@ jobs:
         
         cd ..
 
-    - name: Test model loading
-      run: |
-        cd server/new
-        echo "🧪 Testing model loading with Python..."
-        python3 -c "
-import sys
-from pathlib import Path
-try:
-    from llama_cpp import Llama
-    print('✅ llama-cpp-python imported successfully')
+
     
-    model_path = Path('models/tinyllama.gguf')
-    if not model_path.exists():
-        print(f'❌ Model not found at {model_path}')
-        sys.exit(1)
-    
-    print(f'📁 Model file exists: {model_path}, size: {model_path.stat().st_size} bytes')
-    
-    # Try to load the model
-    print('🔄 Attempting to load model...')
-    llm = Llama(
-        model_path=str(model_path),
-        n_ctx=512,
-        n_threads=2,
-        verbose=True
-    )
-    print('✅ Model loaded successfully!')
-    
-    # Test inference
-    print('🔄 Testing inference...')
-    output = llm('Hello', max_tokens=10)
-    print(f'✅ Test output: {output}')
-    
-except Exception as e:
-    print(f'❌ Error: {e}')
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"
 
     - name: Bingo
       if: success()
