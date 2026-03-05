@@ -63,6 +63,20 @@ jobs:
         cd server/models
         wget -O model.model "${{ github.event.inputs.model_url }}"
         echo "✅ Model downloaded: $(ls -lh model.model)"
+
+    - name: Download model
+      run: |
+        echo "📥 Downloading model from bartowski (widely tested)..."
+        cd server/models
+        # Delete the old model if it exists
+        rm -f model.model
+        # Download from bartowski's repository
+    wget -O model.model "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
+    echo "✅ Model downloaded: $(ls -lh model.model)"
+    
+    # Verify the file is valid
+    file model.model
+    echo "Model size: $(du -h model.model | cut -f1)"
         
         # Verify the file is valid
         file model.model
