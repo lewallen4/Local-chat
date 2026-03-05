@@ -42,10 +42,21 @@ jobs:
         wget -O model.model "${{ github.event.inputs.model_url }}"
         echo "✅ Model downloaded: $(ls -lh model.model)"
     
-    - name: Install Python dependencies
-      run: |
-        cd server
-        pip install -r requirements.txt
+- name: Install Python dependencies
+  run: |
+    # First install build tools
+    pip install --upgrade pip setuptools wheel
+    
+    # Install llama-cpp-python with proper flags for GitHub Actions
+    pip install llama-cpp-python==0.2.26 --no-cache-dir
+    
+    # Install the rest of your requirements
+    cd server
+    pip install -r requirements.txt
+    
+    # Verify installation
+    python -c "import llama_cpp; print('✅ llama-cpp-python installed successfully')"
+
     
     - name: Update test message in script
       run: |
