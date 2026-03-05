@@ -43,8 +43,8 @@ async def test_server():
             print(f"  ✓ Session ID: {session_id}")
             print(f"  ✓ Memory loaded: {memory_loaded}")
             
-            # Send test message - using the actual message from the user
-            test_message = "Hello, please introduce yourself briefly."  # This will be overridden by the GitHub Action input
+            # Send test message
+            test_message = "Hello, please introduce yourself briefly."  # Will be overridden by sed
             print(f"\n💬 Sending: \"{test_message}\"")
             
             response = await client.post(
@@ -97,22 +97,25 @@ async def main():
     print("🚀 LOCAL MODEL DEPLOYMENT TEST")
     print("="*60)
     
-    # Verify model exists
-    model_path = Path("server/models/model.model")
+    # Verify model exists - FIXED PATH
+    model_path = Path("models/model.model")  # Changed from "server/models/model.model"
     if not model_path.exists():
         print(f"❌ ERROR: Model not found at {model_path.absolute()}")
+        print("Current directory:", os.getcwd())
+        print("Files in current directory:", os.listdir("."))
+        print("Files in models directory:", os.listdir("models") if os.path.exists("models") else "models/ not found")
         return False
     
     model_size = model_path.stat().st_size / (1024 * 1024)
     print(f"✅ Model found: {model_size:.1f} MB")
     
-    # Start the server
+    # Start the server - FIXED working directory
     print("\n🚀 Starting FastAPI server...")
     server_process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=os.path.join(os.getcwd(), "server")
+        cwd=os.getcwd()  # Just use current directory (we're already in /server)
     )
     
     try:
@@ -151,7 +154,12 @@ async def main():
         stdout, stderr = server_process.communicate()
         if stderr:
             print("\n📋 Server logs (stderr):")
-            print(stderr.decode()[-1000:])  # Last 1000 chars
+            # Show more of the logs for debugging
+            error_log = stderr.decode()
+            print(error_log[-2000:])  # Last 2000 chars
+        if stdout:
+            print("\n📋 Server logs (stdout):")
+            print(stdout.decode()[-1000:])
 
 if __name__ == "__main__":
     success = asyncio.run(main())
