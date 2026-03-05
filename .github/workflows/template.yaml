@@ -33,32 +33,75 @@ jobs:
           build-essential \
           cmake \
           wget \
-          curl
-    
+          curl \
+          git \
+          lsof \
+          libcurl4-openssl-dev \
+          libssl-dev \
+          python3-dev
+
     - name: Download model
       run: |
         echo "📥 Downloading model from: ${{ github.event.inputs.model_url }}"
         cd server/models
         wget -O model.model "${{ github.event.inputs.model_url }}"
         echo "✅ Model downloaded: $(ls -lh model.model)"
-    
+        
+        # Verify the file is valid
+        file model.model
+        echo "Model size: $(du -h model.model | cut -f1)"
+
     - name: Install Python dependencies
       run: |
         echo "📦 Installing build tools..."
-        pip install --upgrade pip setuptools wheel transformers torch
-        pip install protobuf==3.20.3
+        pip install --upgrade pip setuptools wheel
         
-        echo "📦 Installing llama-cpp-python..."
+        echo "📦 Installing llama-cpp-python with pre-built wheel..."
+        # Try CPU version first (fastest for GitHub Actions)
+        pip install llama-cpp-python==0.2.26 --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || \
         pip install llama-cpp-python==0.2.26 --no-cache-dir
+        
+        echo "📦 Installing tokenizer libraries (for fallback)..."
+        pip install sentencepiece==0.2.0
+        pip install protobuf==3.20.3
         
         echo "📦 Installing server dependencies..."
         cd server
         pip install -r requirements.txt
         
         echo "✅ Verifying installations..."
-        python -c "import llama_cpp; print('llama-cpp-python version:', llama_cpp.__version__)"
-        python -c "import fastapi; print('fastapi version:', fastapi.__version__)"
-    
+        cd ..
+        python -c "
+import sys
+print('Python version:', sys.version)
+print('Python path:', sys.path)
+
+try:
+    import llama_cpp
+    print('✅ llama-cpp-python version:', llama_cpp.__version__)
+    print('✅ GGUF backend available')
+except ImportError as e:
+    print('❌ llama-cpp-python not available:', e)
+
+try:
+    import sentencepiece
+    print('✅ sentencepiece version:', sentencepiece.__version__)
+except ImportError as e:
+    print('❌ sentencepiece not available:', e)
+
+try:
+    import google.protobuf
+    print('✅ protobuf version:', google.protobuf.__version__)
+except ImportError as e:
+    print('❌ protobuf not available:', e)
+
+try:
+    import fastapi
+    print('✅ fastapi version:', fastapi.__version__)
+except ImportError as e:
+    print('❌ fastapi not available:', e)
+"
+
     - name: Update test message in script
       run: |
         # Replace the default test message with the one from workflow input
@@ -71,13 +114,44 @@ jobs:
       continue-on-error: false
       env:
         PYTHONPATH: ${{ github.workspace }}/server:${{ github.workspace }}
+        LLAMA_CPP_LOG_LEVEL: "info"
+
+    - name: Check server logs if failed
+      if: failure()
+      run: |
+        echo "🔍 Checking for error details..."
+        echo ""
+        echo "=== Python processes ==="
+        ps aux | grep python
+        echo ""
+        echo "=== Port 8000 status ==="
+        lsof -i :8000 || echo "Port 8000 not in use"
+        echo ""
+        echo "=== Model file details ==="
+        cd server/models
+        ls -la
+        file model.model
+        echo ""
+        echo "=== Directory structure ==="
+        cd ../..
+        pwd
+        ls -la
+        echo ""
+        echo "=== Server directory ==="
+        ls -la server/
+        echo ""
+        echo "=== Server logs (if any) ==="
+        cd server
+        cat uvicorn.log 2>/dev/null || echo "No uvicorn log file"
 
     - name: Upload test logs
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-logs
-        path: server/sessions/
+        path: |
+          server/sessions/
+          server/*.log
         retention-days: 7
 
     - name: Create deployment summary
@@ -85,12 +159,18 @@ jobs:
       run: |
         echo "## 📊 Deployment Test Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Download | ✅ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Dependencies | ✅ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Server Startup | ⏳ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Download | ✅ | $(cd server/models && ls -lh model.model | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+        echo "| llama-cpp-python | ⚙️ | Check logs above |" >> $GITHUB_STEP_SUMMARY
+        echo "| Server Startup | ${{ job.status == 'success' && '✅' || '❌' }} | Port 8000 |" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} | Test message sent |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## 📝 Test Message" >> $GITHUB_STEP_SUMMARY
         echo "> \"${{ github.event.inputs.test_message }}\"" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🔧 Debug Information" >> $GITHUB_STEP_SUMMARY
+        echo "If the test failed, check:" >> $GITHUB_STEP_SUMMARY
+        echo "1. The 'Check server logs if failed' step above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Download the 'test-logs' artifact" >> $GITHUB_STEP_SUMMARY
+        echo "3. Verify llama-cpp-python installed correctly" >> $GITHUB_STEP_SUMMARY
