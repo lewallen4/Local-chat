@@ -97,25 +97,27 @@ async def main():
     print("🚀 LOCAL MODEL DEPLOYMENT TEST")
     print("="*60)
     
-    # Verify model exists - FIXED PATH
-    model_path = Path("models/model.model")  # Changed from "server/models/model.model"
+    # Verify model exists
+    model_path = Path("models/model.model")
     if not model_path.exists():
         print(f"❌ ERROR: Model not found at {model_path.absolute()}")
-        print("Current directory:", os.getcwd())
-        print("Files in current directory:", os.listdir("."))
-        print("Files in models directory:", os.listdir("models") if os.path.exists("models") else "models/ not found")
+        print(f"Current directory: {os.getcwd()}")
+        print(f"Files in current directory: {os.listdir('.')}")
+        if os.path.exists("models"):
+            print(f"Files in models directory: {os.listdir('models')}")
         return False
     
     model_size = model_path.stat().st_size / (1024 * 1024)
     print(f"✅ Model found: {model_size:.1f} MB")
     
-    # Start the server - FIXED working directory
+    # Start the server
     print("\n🚀 Starting FastAPI server...")
     server_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"],
+        [sys.executable, "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd=os.getcwd()  # Just use current directory (we're already in /server)
+        cwd=os.getcwd(),
+        text=True
     )
     
     try:
@@ -133,7 +135,6 @@ async def main():
             print("   1. Use ngrok for temporary access:")
             print("      ngrok http 8000")
             print("   2. Deploy to a cloud VM for permanent hosting")
-            print("   3. Share the ngrok URL to test from anywhere")
             return True
         else:
             print("\n" + "="*60)
@@ -154,12 +155,10 @@ async def main():
         stdout, stderr = server_process.communicate()
         if stderr:
             print("\n📋 Server logs (stderr):")
-            # Show more of the logs for debugging
-            error_log = stderr.decode()
-            print(error_log[-2000:])  # Last 2000 chars
+            print(stderr[-2000:] if len(stderr) > 2000 else stderr)
         if stdout:
             print("\n📋 Server logs (stdout):")
-            print(stdout.decode()[-1000:])
+            print(stdout[-1000:] if len(stdout) > 1000 else stdout)
 
 if __name__ == "__main__":
     success = asyncio.run(main())
