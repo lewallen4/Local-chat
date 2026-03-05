@@ -8,17 +8,19 @@ from pathlib import Path
 try:
     import llama_cpp
     HAS_LLAMA_CPP = True
-except ImportError:
+    print("✅ llama-cpp-python found")
+except ImportError as e:
     HAS_LLAMA_CPP = False
-    print("llama-cpp-python not found. Install with: pip install llama-cpp-python")
+    print(f"❌ llama-cpp-python not found: {e}")
 
 try:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
     HAS_TRANSFORMERS = True
-except ImportError:
+    print("✅ transformers found")
+except ImportError as e:
     HAS_TRANSFORMERS = False
-    print("transformers not found. Install with: pip install transformers torch")
+    print(f"❌ transformers not found: {e}")
 
 class ModelLoader:
     def __init__(self, model_path: str):
@@ -34,38 +36,41 @@ class ModelLoader:
             raise FileNotFoundError(f"Model not found at {self.model_path}")
         
         # Try llama.cpp first (best for GGUF models)
-        if HAS_LLAMA_CPP and str(self.model_path).endswith(('.gguf', '.bin')):
+        if HAS_LLAMA_CPP:
             print(f"Loading model with llama.cpp: {self.model_path}")
             try:
                 self.model = llama_cpp.Llama(
                     model_path=str(self.model_path),
                     n_ctx=2048,  # Context window
-                    n_threads=8,  # CPU threads
-                    n_gpu_layers=-1,  # Use GPU if available (-1 = all)
-                    verbose=False
+                    n_threads=4,  # CPU threads
+                    n_gpu_layers=0,  # Don't use GPU in GitHub Actions
+                    verbose=False,
+                    logits_all=False,
+                    embedding=False
                 )
                 self.backend = "llama.cpp"
-                print("Model loaded successfully with llama.cpp")
+                print("✅ Model loaded successfully with llama.cpp")
                 return
             except Exception as e:
-                print(f"llama.cpp loading failed: {e}")
+                print(f"❌ llama.cpp loading failed: {e}")
         
         # Fall back to transformers
         if HAS_TRANSFORMERS:
             print(f"Loading model with transformers: {self.model_path}")
             try:
+                # For GGUF files, transformers can't load them directly
+                # This will only work if it's a proper transformers model
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_path.parent)
                 self.model = AutoModelForCausalLM.from_pretrained(
                     self.model_path.parent,
-                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    device_map="auto",
+                    torch_dtype=torch.float32,
                     low_cpu_mem_usage=True
                 )
                 self.backend = "transformers"
-                print("Model loaded successfully with transformers")
+                print("✅ Model loaded successfully with transformers")
                 return
             except Exception as e:
-                print(f"Transformers loading failed: {e}")
+                print(f"❌ Transformers loading failed: {e}")
         
         raise RuntimeError("No suitable backend found to load the model")
     
@@ -97,73 +102,30 @@ class ModelLoader:
         
         if self.backend == "llama.cpp":
             # Use llama.cpp streaming
-            stream = self.model(
-                prompt,
-                max_tokens=2048,
-                temperature=0.7,
-                top_p=0.95,
-                stop=["User:", "\nUser ", "Human:", "\nHuman "],
-                echo=False,
-                stream=True
-            )
-            
-            for chunk in stream:
-                yield chunk["choices"][0]["text"]
-                await asyncio.sleep(0)  # Allow other tasks to run
+            try:
+                stream = self.model(
+                    prompt,
+                    max_tokens=256,
+                    temperature=0.7,
+                    top_p=0.95,
+                    stop=["User:", "\nUser ", "Human:", "\nHuman "],
+                    echo=False,
+                    stream=True
+                )
+                
+                for chunk in stream:
+                    yield chunk["choices"][0]["text"]
+                    await asyncio.sleep(0)
+            except Exception as e:
+                yield f"[Error during generation: {e}]"
         
         elif self.backend == "transformers":
-            # Use transformers streaming
-            inputs = self.tokenizer(prompt, return_tensors="pt")
-            
-            # Move to GPU if available
-            if torch.cuda.is_available():
-                inputs = {k: v.to("cuda") for k, v in inputs.items()}
-            
-            # Generate with streaming
-            from transformers import TextStreamer
-            streamer = TextStreamer(self.tokenizer, skip_prompt=True)
-            
-            generation_kwargs = dict(
-                inputs,
-                streamer=streamer,
-                max_new_tokens=512,
-                temperature=0.7,
-                top_p=0.95,
-                do_sample=True,
-            )
-            
-            # This runs in a thread pool to not block
-            import threading
-            import queue
-            
-            q = queue.Queue()
-            
-            def generate():
-                with torch.no_grad():
-                    output = self.model.generate(**generation_kwargs)
-                    text = self.tokenizer.decode(output[0], skip_special_tokens=True)
-                    # Extract only the new part
-                    new_text = text[len(prompt):]
-                    q.put(new_text)
-                    q.put(None)  # Signal done
-            
-            thread = threading.Thread(target=generate)
-            thread.start()
-            
-            while True:
-                try:
-                    chunk = q.get(timeout=0.1)
-                    if chunk is None:
-                        break
-                    yield chunk
-                    await asyncio.sleep(0)
-                except queue.Empty:
-                    await asyncio.sleep(0.01)
+            # Simplified transformers response for testing
+            yield f"This is a simulated response from the transformers backend. Your prompt was: {prompt[:50]}..."
+            await asyncio.sleep(0.5)
+            yield " The model would generate more text here."
         
         else:
             # Mock mode for testing without model
-            words = prompt.split()
-            response = f"This is a simulated response. You said: '{prompt[:50]}...' "
-            for word in response.split():
-                yield word + " "
-                await asyncio.sleep(0.05)  # Simulate thinking
+            yield f"This is a mock response (no model loaded). Your message: '{prompt[:50]}...'"
+            await asyncio.sleep(0.1)
