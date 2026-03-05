@@ -15,12 +15,28 @@ jobs:
       with:
         fetch-depth: 0  # Fetch all history for proper commit
 
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+        build-essential \
+        cmake \
+        wget \
+        curl \
+        git \
+        lsof \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        python3-dev \
+        libgomp1 \
+        libatomic1 \
+        libstdc++6
+
+
     - name: Bingo
       run: |
         echo "lets go"
-        sudo apt update
-        sudo apt upgrade
-        sudo apt install -y python
         cd server/new
         pip install -r requirements.txt
         python server.py
