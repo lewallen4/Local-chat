@@ -40,6 +40,23 @@ jobs:
           libssl-dev \
           python3-dev
 
+- name: Install system dependencies
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y \
+      build-essential \
+      cmake \
+      wget \
+      curl \
+      git \
+      lsof \
+      libcurl4-openssl-dev \
+      libssl-dev \
+      python3-dev \
+      libgomp1 \
+      libatomic1 \
+      libstdc++6
+
     - name: Download model
       run: |
         echo "📥 Downloading model from: ${{ github.event.inputs.model_url }}"
