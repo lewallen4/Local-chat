@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local DeepSeek - Chat Interface</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h2>Local DeepSeek</h2>
+                <button id="new-chat" class="new-chat-btn">+ New Chat</button>
+            </div>
+            <div class="memory-panel">
+                <h3>📚 Memory Bank</h3>
+                <div id="memory-preview" class="memory-preview">
+                    Loading memory...
+                </div>
+            </div>
+            <div class="session-info">
+                <div id="session-id-display"></div>
+                <div id="message-count">0 messages</div>
+            </div>
+        </div>
+        
+        <div class="main-chat">
+            <div id="chat-messages" class="chat-messages">
+                <div class="welcome-message">
+                    <h3>Welcome to Local DeepSeek!</h3>
+                    <p>Start a conversation. The model will remember past sessions through memory.md.</p>
+                </div>
+            </div>
+            
+            <div class="input-area">
+                <textarea 
+                    id="user-input" 
+                    placeholder="Type your message here... (Shift+Enter for new line, Enter to send)"
+                    rows="3"
+                ></textarea>
+                <button id="send-button" disabled>Send</button>
+            </div>
+            <div class="typing-indicator" id="typing-indicator">Model is thinking...</div>
+        </div>
+    </div>
+    
+    <script src="/static/script.js"></script>
+</body>
+</html>
