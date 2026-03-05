@@ -118,7 +118,7 @@ jobs:
         export OMP_NUM_THREADS=2
         
         # Run the server with the tiny model
-        python server.py --model tinyllama.gguf
+        python server.py --model models/tinyllama.gguf
 
     - name: Keep alive and monitor
       if: always()
