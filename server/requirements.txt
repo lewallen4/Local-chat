@@ -5,6 +5,7 @@ python-multipart==0.0.6
 httpx==0.25.1
 aiofiles==23.2.1
 llama-cpp-python==0.2.26
+protobuf==3.20.3
 
 # For model loading - choose one based on your model type
 # For GGUF models (recommended for CPU):
