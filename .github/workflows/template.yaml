@@ -69,38 +69,6 @@ jobs:
         cd server
         pip install -r requirements.txt
         
-        echo "✅ Verifying installations..."
-        cd ..
-        python -c "
-import sys
-print('Python version:', sys.version)
-print('Python path:', sys.path)
-
-try:
-    import llama_cpp
-    print('✅ llama-cpp-python version:', llama_cpp.__version__)
-    print('✅ GGUF backend available')
-except ImportError as e:
-    print('❌ llama-cpp-python not available:', e)
-
-try:
-    import sentencepiece
-    print('✅ sentencepiece version:', sentencepiece.__version__)
-except ImportError as e:
-    print('❌ sentencepiece not available:', e)
-
-try:
-    import google.protobuf
-    print('✅ protobuf version:', google.protobuf.__version__)
-except ImportError as e:
-    print('❌ protobuf not available:', e)
-
-try:
-    import fastapi
-    print('✅ fastapi version:', fastapi.__version__)
-except ImportError as e:
-    print('❌ fastapi not available:', e)
-"
 
     - name: Update test message in script
       run: |
