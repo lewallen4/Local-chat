@@ -1,0 +1,27 @@
+name: Build new
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  organize-files:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Needed to push changes
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper commit
+
+    - name: Bingo
+      run: |
+        echo "lets go"
+        sudo apt update
+        sudo apt upgrade
+        sudo apt install -y python
+        cd server/new
+        pip install -r requirements.txt
+        python server.py
+        
