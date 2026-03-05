@@ -41,7 +41,7 @@ jobs:
         rm ngrok-v3-stable-linux-amd64.tgz
         
         # Configure ngrok with token from GitHub secrets
-        ngrok config add-authtoken ${{ secrets.NGROK_TOKEN }}
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
         
         # Start ngrok in background
         ngrok http 5000 --log=stdout > ngrok.log 2>&1 &
