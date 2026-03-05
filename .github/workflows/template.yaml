@@ -46,6 +46,7 @@ jobs:
       run: |
         echo "📦 Installing build tools..."
         pip install --upgrade pip setuptools wheel transformers torch
+        pip install protobuf==3.20.3
         
         echo "📦 Installing llama-cpp-python..."
         pip install llama-cpp-python==0.2.26 --no-cache-dir
