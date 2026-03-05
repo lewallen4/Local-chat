@@ -15,17 +15,17 @@ on:
 jobs:
   test-deployment:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         cache: 'pip'
-    
+
     - name: Install system dependencies
       run: |
         sudo apt-get update
@@ -44,30 +44,33 @@ jobs:
     
     - name: Install Python dependencies
       run: |
-         # First install build tools
-         pip install --upgrade pip setuptools wheel
-    
-         # Install llama-cpp-python with proper flags for GitHub Actions
-         pip install llama-cpp-python==0.2.26 --no-cache-dir
-    
-         # Install the rest of your requirements
-         cd server
-         pip install -r requirements.txt
-    
-         # Verify installation
-         python -c "import llama_cpp; print('✅ llama-cpp-python installed successfully')"
-
+        echo "📦 Installing build tools..."
+        pip install --upgrade pip setuptools wheel
+        
+        echo "📦 Installing llama-cpp-python..."
+        pip install llama-cpp-python==0.2.26 --no-cache-dir
+        
+        echo "📦 Installing server dependencies..."
+        cd server
+        pip install -r requirements.txt
+        
+        echo "✅ Verifying installations..."
+        python -c "import llama_cpp; print('llama-cpp-python version:', llama_cpp.__version__)"
+        python -c "import fastapi; print('fastapi version:', fastapi.__version__)"
     
     - name: Update test message in script
       run: |
         # Replace the default test message with the one from workflow input
-        sed -i "s/test_message = \".*\"/test_message = \"${{ github.event.inputs.test_message }}\"/" test_deployment.py
+        sed -i "s/test_message = \".*\"/test_message = \"${{ github.event.inputs.test_message }}\"/" server/test_deployment.py
     
     - name: Run deployment test
       run: |
+        cd server
         python test_deployment.py
       continue-on-error: false
-    
+      env:
+        PYTHONPATH: ${{ github.workspace }}/server:${{ github.workspace }}
+
     - name: Upload test logs
       if: always()
       uses: actions/upload-artifact@v4
@@ -75,7 +78,7 @@ jobs:
         name: test-logs
         path: server/sessions/
         retention-days: 7
-    
+
     - name: Create deployment summary
       if: always()
       run: |
@@ -84,7 +87,8 @@ jobs:
         echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
         echo "| Model Download | ✅ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Server Startup | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Dependencies | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Server Startup | ⏳ |" >> $GITHUB_STEP_SUMMARY
         echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## 📝 Test Message" >> $GITHUB_STEP_SUMMARY
