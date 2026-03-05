@@ -54,6 +54,7 @@ jobs:
     
     - name: Run deployment test
       run: |
+      cd server
         python test_deployment.py
       continue-on-error: false
     
