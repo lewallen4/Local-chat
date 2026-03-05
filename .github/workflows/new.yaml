@@ -83,6 +83,9 @@ jobs:
         echo ""
         
         # Run the server
+        echo " "
+        ls -la
+        echo " "
         python server.py
 
     - name: Keep alive and monitor
