@@ -41,7 +41,7 @@ jobs:
         pip install -r requirements.txt
         mkdir models
         cd models
-        wget -O model.model "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
+        wget -O qwen3.gguf "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
         cd ..
         python server.py
         
