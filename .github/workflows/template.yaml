@@ -45,7 +45,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         echo "📦 Installing build tools..."
-        pip install --upgrade pip setuptools wheel
+        pip install --upgrade pip setuptools wheel transformers torch
         
         echo "📦 Installing llama-cpp-python..."
         pip install llama-cpp-python==0.2.26 --no-cache-dir
