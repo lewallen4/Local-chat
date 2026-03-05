@@ -20,14 +20,29 @@ from queue import Queue
 import signal
 import atexit
 
+# Try to import torch with fallback
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("Warning: PyTorch not available, running in CPU-only mode")
+
 # Web framework imports
-from flask import Flask, request, jsonify, render_template_string, send_from_directory
+from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
 from werkzeug.serving import run_simple
 
-# LLM imports
-from llama_cpp import Llama
-import torch
+# LLM imports with version compatibility handling
+try:
+    from llama_cpp import Llama
+    from llama_cpp import LlamaGrammar, LlamaCache
+    LLAMA_CPP_AVAILABLE = True
+except ImportError as e:
+    LLAMA_CPP_AVAILABLE = False
+    print(f"ERROR: llama-cpp-python not installed correctly: {e}")
+    print("Please run: pip install llama-cpp-python --upgrade")
+    sys.exit(1)
 
 # Configure logging
 logging.basicConfig(
@@ -35,10 +50,21 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('llm_server.log'),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Add GitHub Actions detection
+if os.environ.get('GITHUB_ACTIONS') == 'true':
+    print("\n" + "="*50)
+    print("🚀 Running in GitHub Actions")
+    print("="*50)
+    print("📡 Ngrok URL will be available via the workflow output")
+    print("="*50 + "\n")
+    
+    # Force stdout to be unbuffered
+    sys.stdout.reconfigure(line_buffering=True)
 
 # ============================================================================
 # Data Models
@@ -257,7 +283,7 @@ class SessionManager:
         return "No automated lessons extracted. Manual review recommended."
 
 # ============================================================================
-# LLM Manager
+# LLM Manager (Fixed version)
 # ============================================================================
 
 class LLMManager:
@@ -278,8 +304,30 @@ class LLMManager:
         # Use the largest GGUF file by default
         return max(gguf_files, key=lambda p: p.stat().st_size)
     
+    def verify_model_file(self, model_path: Path) -> bool:
+        """Verify that the model file is valid"""
+        try:
+            # Check file size
+            file_size = model_path.stat().st_size
+            if file_size < 1000000:  # Less than 1MB - probably invalid
+                logger.error(f"Model file too small ({file_size} bytes), might be corrupted")
+                return False
+            
+            # Check file header for GGUF magic number
+            with open(model_path, 'rb') as f:
+                header = f.read(8)
+                # GGUF magic number is 'GGUF' in bytes
+                if header[:4] != b'GGUF':
+                    logger.error(f"File does not appear to be a valid GGUF model (magic number: {header[:4]})")
+                    return False
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error verifying model file: {e}")
+            return False
+    
     def load_model(self, model_path: Optional[str] = None):
-        """Load the LLM model"""
+        """Load the LLM model with better error handling"""
         try:
             if model_path:
                 self.model_path = Path(model_path)
@@ -290,56 +338,105 @@ class LLMManager:
                 logger.error(f"No model found in {self.models_dir}")
                 return False
             
-            logger.info(f"Loading model from {self.model_path}")
+            logger.info(f"Found model: {self.model_path}")
+            logger.info(f"Model size: {self.model_path.stat().st_size / (1024**3):.2f} GB")
+            
+            # Verify the model file
+            if not self.verify_model_file(self.model_path):
+                logger.error("Model file verification failed")
+                return False
             
             # Check for GPU availability
-            n_gpu_layers = -1 if torch.cuda.is_available() else 0
-            if torch.cuda.is_available():
+            n_gpu_layers = 0  # Default to CPU only for stability in GitHub Actions
+            if TORCH_AVAILABLE and torch.cuda.is_available():
+                n_gpu_layers = -1  # Use all layers on GPU
                 logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
+            else:
+                logger.info("Running in CPU mode")
             
-            # Load the model
-            self.model = Llama(
-                model_path=str(self.model_path),
-                n_ctx=4096,  # Context window
-                n_threads=os.cpu_count(),
-                n_gpu_layers=n_gpu_layers,
-                verbose=False
-            )
+            # Load the model with explicit parameters for better compatibility
+            logger.info("Loading model (this may take a few minutes)...")
             
-            logger.info("Model loaded successfully")
+            # Try loading with different configurations based on model size
+            try:
+                # First attempt with standard settings
+                self.model = Llama(
+                    model_path=str(self.model_path),
+                    n_ctx=2048,  # Smaller context for stability
+                    n_threads=os.cpu_count() or 4,
+                    n_gpu_layers=n_gpu_layers,
+                    verbose=False,
+                    use_mmap=True,  # Use memory mapping for faster loading
+                    use_mlock=False,  # Don't lock memory (safer for GitHub Actions)
+                )
+            except Exception as e:
+                logger.warning(f"First load attempt failed: {e}")
+                logger.info("Attempting to load with fallback parameters...")
+                
+                # Fallback with minimal settings
+                self.model = Llama(
+                    model_path=str(self.model_path),
+                    n_ctx=1024,  # Minimal context
+                    n_threads=2,  # Fewer threads
+                    n_gpu_layers=0,  # Force CPU
+                    verbose=False,
+                    use_mmap=False,  # Don't use memory mapping
+                    use_mlock=False,
+                    low_vram=True,  # Low VRAM mode
+                )
+            
+            logger.info("✅ Model loaded successfully")
+            
+            # Test the model with a simple prompt
+            try:
+                test_response = self.model(
+                    "Hello", 
+                    max_tokens=5,
+                    temperature=0.1
+                )
+                logger.info("✅ Model test successful")
+            except Exception as e:
+                logger.warning(f"Model test failed but model may still work: {e}")
+            
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load model: {e}")
+            logger.error(f"❌ Failed to load model: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
     def generate_response(self, messages: List[Dict[str, str]], memory_context: str = "") -> str:
-        """Generate a response from the model"""
+        """Generate a response from the model with better error handling"""
         if not self.model:
-            return "Error: Model not loaded. Please check the server logs."
+            return "⚠️ Model not loaded. Please check the server logs."
         
         with self.model_lock:
             try:
                 # Format messages for the model
                 prompt = self._format_prompt(messages, memory_context)
                 
-                # Generate response
+                # Generate response with conservative parameters
                 response = self.model(
                     prompt,
-                    max_tokens=2048,
+                    max_tokens=512,  # Shorter responses for stability
                     temperature=0.7,
                     top_p=0.95,
                     repeat_penalty=1.1,
                     top_k=40,
-                    stop=["User:", "\nUser ", "Human:", "\nHuman "],
+                    stop=["User:", "\nUser ", "Human:", "\nHuman ", "<|im_end|>"],
                     echo=False
                 )
                 
-                return response['choices'][0]['text'].strip()
+                generated_text = response['choices'][0]['text'].strip()
+                if not generated_text:
+                    return "I'm having trouble generating a response. Please try again."
+                
+                return generated_text
                 
             except Exception as e:
                 logger.error(f"Error generating response: {e}")
-                return f"Error generating response: {str(e)}"
+                return f"⚠️ Error: {str(e)}"
     
     def _format_prompt(self, messages: List[Dict[str, str]], memory_context: str) -> str:
         """Format messages into a prompt for the model"""
@@ -349,20 +446,20 @@ class LLMManager:
 
 Use this memory to provide consistent and helpful responses. If you don't know something, say so."""
         
-        formatted = f"System: {system_message}\n\n"
+        formatted = f"<|im_start|>system\n{system_message}<|im_end|>\n\n"
         
         for msg in messages:
-            role = "User" if msg['role'] == 'user' else "Assistant"
-            formatted += f"{role}: {msg['content']}\n\n"
+            role = "user" if msg['role'] == 'user' else "assistant"
+            formatted += f"<|im_start|>{role}\n{msg['content']}<|im_end|>\n\n"
         
-        formatted += "Assistant: "
+        formatted += "<|im_start|>assistant\n"
         return formatted
 
 # ============================================================================
 # Web Application
 # ============================================================================
 
-# HTML Template for the chat interface
+# HTML Template for the chat interface (same as before)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -403,6 +500,7 @@ HTML_TEMPLATE = """
             color: white;
             padding: 20px;
             text-align: center;
+            position: relative;
         }
         
         #chat-header h1 {
@@ -413,6 +511,16 @@ HTML_TEMPLATE = """
         #chat-header p {
             font-size: 14px;
             opacity: 0.9;
+        }
+        
+        #model-status {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.2);
         }
         
         #messages {
@@ -548,7 +656,7 @@ HTML_TEMPLATE = """
         #new-chat-btn {
             position: absolute;
             top: 20px;
-            right: 20px;
+            right: 100px;
             padding: 8px 16px;
             background: rgba(255,255,255,0.2);
             color: white;
@@ -565,9 +673,10 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div id="chat-container">
-        <div id="chat-header" style="position: relative;">
+        <div id="chat-header">
             <h1>Local LLM Chat</h1>
             <p>Powered by GGUF models with persistent memory</p>
+            <div id="model-status">🔄 Loading model...</div>
             <button id="new-chat-btn" onclick="newChat()">New Chat</button>
         </div>
         <div id="messages"></div>
@@ -577,23 +686,46 @@ HTML_TEMPLATE = """
             <span></span>
         </div>
         <div id="input-container">
-            <input type="text" id="message-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
-            <button id="send-button" onclick="sendMessage()">Send</button>
+            <input type="text" id="message-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)" disabled>
+            <button id="send-button" onclick="sendMessage()" disabled>Send</button>
         </div>
     </div>
 
     <script>
         let sessionId = localStorage.getItem('sessionId') || '';
         let isLoading = false;
+        let modelLoaded = false;
 
-        // Load session on page load
+        // Check model status on load
         window.onload = function() {
+            checkModelStatus();
             if (sessionId) {
                 loadSession();
             } else {
                 newChat();
             }
         };
+
+        async function checkModelStatus() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                modelLoaded = data.model_loaded;
+                
+                const statusDiv = document.getElementById('model-status');
+                if (modelLoaded) {
+                    statusDiv.innerHTML = '✅ Model loaded';
+                    statusDiv.style.background = 'rgba(76, 175, 80, 0.3)';
+                    document.getElementById('message-input').disabled = false;
+                    document.getElementById('send-button').disabled = false;
+                } else {
+                    statusDiv.innerHTML = '❌ Model not loaded';
+                    statusDiv.style.background = 'rgba(244, 67, 54, 0.3)';
+                }
+            } catch (error) {
+                console.error('Error checking model status:', error);
+            }
+        }
 
         async function newChat() {
             try {
@@ -656,6 +788,11 @@ HTML_TEMPLATE = """
         }
 
         async function sendMessage() {
+            if (!modelLoaded) {
+                alert('Model is still loading. Please wait...');
+                return;
+            }
+            
             const input = document.getElementById('message-input');
             const message = input.value.trim();
             
@@ -700,6 +837,9 @@ HTML_TEMPLATE = """
                 sendMessage();
             }
         }
+
+        // Periodically check model status
+        setInterval(checkModelStatus, 5000);
     </script>
 </body>
 </html>
@@ -777,7 +917,7 @@ class ChatServer:
                 'model_loaded': self.llm_manager.model is not None,
                 'model_path': str(self.llm_manager.model_path) if self.llm_manager.model_path else None,
                 'sessions_active': len(self.session_manager.sessions),
-                'gpu_available': torch.cuda.is_available()
+                'gpu_available': TORCH_AVAILABLE and torch.cuda.is_available() if TORCH_AVAILABLE else False
             })
         
         @self.app.route('/api/memory', methods=['GET'])
@@ -798,10 +938,12 @@ class ChatServer:
         logger.info(f"Starting LLM Chat Server on http://{self.host}:{self.port}")
         logger.info(f"Models directory: {self.models_dir.absolute()}")
         logger.info(f"Memory file: {self.memory_manager.memory_file}")
-        logger.info(f"GPU Available: {torch.cuda.is_available()}")
+        logger.info(f"GPU Available: {TORCH_AVAILABLE and torch.cuda.is_available() if TORCH_AVAILABLE else False}")
         
         if not self.llm_manager.model:
-            logger.warning("No model loaded. Please place a .gguf file in the models directory.")
+            logger.warning("No model loaded. The web interface will show an error.")
+        else:
+            logger.info("✅ Model loaded and ready!")
         
         # Run with production settings
         run_simple(
