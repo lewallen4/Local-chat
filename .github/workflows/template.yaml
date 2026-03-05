@@ -1,7 +1,7 @@
 name: Test Local Model Deployment
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:
     inputs:
       model_url:
         description: 'GGUF model URL to download'
@@ -33,242 +33,36 @@ jobs:
           build-essential \
           cmake \
           wget \
-          curl \
-          lsof
-    
-    - name: Verify directory structure
-      run: |
-        echo "📁 Checking folder structure..."
-        ls -la
-        echo ""
-        echo "📁 Server directory contents:"
-        ls -la server/ || echo "server/ directory not found!"
-        echo ""
-        echo "📁 Models directory:"
-        ls -la server/models/ || echo "server/models/ directory not found!"
+          curl
     
     - name: Download model
       run: |
         echo "📥 Downloading model from: ${{ github.event.inputs.model_url }}"
         cd server/models
         wget -O model.model "${{ github.event.inputs.model_url }}"
-        echo ""
-        echo "✅ Model downloaded:"
-        ls -lh model.model
-    
-    - name: Verify model file
-      run: |
-        cd server/models
-        echo "🔍 Model file info:"
-        file model.model
-        echo ""
-        echo "📊 Model size: $(du -h model.model | cut -f1)"
-        echo "🔢 Model checksum:"
-        sha256sum model.model | cut -d' ' -f1
+        echo "✅ Model downloaded: $(ls -lh model.model)"
     
     - name: Install Python dependencies
       run: |
         cd server
-        echo "📦 Installing dependencies..."
         pip install -r requirements.txt
-        echo ""
-        echo "✅ Installed packages:"
-        pip list | grep -E "fastapi|uvicorn|llama-cpp|httpx"
     
-    - name: Create test script
+    - name: Update test message in script
       run: |
-        cd server
-        cat > test_deployment.py << 'EOF'
-import asyncio
-import httpx
-import json
-import time
-import subprocess
-import sys
-import os
-from pathlib import Path
-
-async def test_server():
-    """Test the server by sending a message and checking response"""
-    
-    print("⏳ Waiting for server to initialize and load model...")
-    await asyncio.sleep(10)
-    
-    # Test server availability
-    for i in range(30):
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get("http://localhost:8000")
-                if response.status_code == 200:
-                    print(f"  ✓ Server responded (attempt {i+1})")
-                    break
-        except Exception as e:
-            print(f"  ⏳ Waiting for server... ({i+1}/30)")
-        await asyncio.sleep(1)
-    
-    print("\n" + "="*60)
-    print("🧪 STARTING MODEL TEST")
-    print("="*60)
-    
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            # Start session
-            print("\n📝 Creating new session...")
-            start_response = await client.post(
-                "http://localhost:8000/api/chat/start",
-                json={"metadata": {"test": True, "source": "github-actions"}}
-            )
-            session_data = start_response.json()
-            session_id = session_data["session_id"]
-            memory_loaded = session_data["memory_loaded"]
-            print(f"  ✓ Session ID: {session_id}")
-            print(f"  ✓ Memory loaded: {memory_loaded}")
-            
-            # Send test message
-            test_message = "${{ github.event.inputs.test_message }}"
-            print(f"\n💬 Sending: \"{test_message}\"")
-            
-            response = await client.post(
-                f"http://localhost:8000/api/chat/{session_id}",
-                json={"message": test_message}
-            )
-            
-            # Read streaming response
-            print("\n🤖 Model response:")
-            print("-"*50)
-            
-            full_response = ""
-            async for line in response.aiter_lines():
-                if line and line.startswith("data: "):
-                    try:
-                        data = json.loads(line[6:])
-                        if "chunk" in data:
-                            print(data["chunk"], end="", flush=True)
-                            full_response += data["chunk"]
-                        elif "done" in data:
-                            print("\n" + "-"*50)
-                            print(f"✅ Response complete! Length: {len(full_response)} chars")
-                        elif "error" in data:
-                            print(f"\n❌ Error: {data['error']}")
-                    except json.JSONDecodeError:
-                        continue
-            
-            # End session
-            print("\n🔄 Ending session...")
-            end_response = await client.post(f"http://localhost:8000/api/chat/{session_id}/end")
-            print("  ✓ Session saved to memory")
-            
-            # Check memory was updated
-            memory_response = await client.get("http://localhost:8000/api/memory")
-            memory_data = memory_response.json()
-            memory_preview = memory_data.get("memory", "")[-500:]  # Last 500 chars
-            print("\n📚 Latest memory preview:")
-            print("-"*50)
-            print(memory_preview)
-            print("-"*50)
-            
-            return True, full_response
-            
-    except Exception as e:
-        print(f"\n❌ Test failed: {type(e).__name__}: {e}")
-        return False, str(e)
-
-async def main():
-    print("="*60)
-    print("🚀 LOCAL MODEL DEPLOYMENT TEST")
-    print("="*60)
-    
-    # Verify model exists
-    model_path = Path("models/model.model")
-    if not model_path.exists():
-        print(f"❌ ERROR: Model not found at {model_path.absolute()}")
-        return False
-    
-    model_size = model_path.stat().st_size / (1024 * 1024)
-    print(f"✅ Model found: {model_size:.1f} MB")
-    
-    # Start the server
-    print("\n🚀 Starting FastAPI server...")
-    server_process = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=os.getcwd()
-    )
-    
-    try:
-        # Give server time to start
-        await asyncio.sleep(5)
-        
-        # Run tests
-        success, response = await test_server()
-        
-        if success:
-            print("\n" + "="*60)
-            print("✅✅✅ ALL TESTS PASSED! ✅✅✅")
-            print("="*60)
-            print("\n🎯 Next steps:")
-            print("   1. Use ngrok for temporary access:")
-            print("      ngrok http 8000")
-            print("   2. Deploy to a cloud VM for permanent hosting")
-            print("   3. Share the ngrok URL to test from anywhere")
-            return True
-        else:
-            print("\n" + "="*60)
-            print("❌❌❌ TESTS FAILED ❌❌❌")
-            print("="*60)
-            return False
-            
-    finally:
-        # Cleanup
-        print("\n🧹 Cleaning up...")
-        server_process.terminate()
-        try:
-            server_process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            server_process.kill()
-        
-        # Show server logs if there was an error
-        stdout, stderr = server_process.communicate()
-        if stderr:
-            print("\n📋 Server logs (stderr):")
-            print(stderr.decode()[-1000:])  # Last 1000 chars
-
-if __name__ == "__main__":
-    success = asyncio.run(main())
-    sys.exit(0 if success else 1)
-EOF
+        # Replace the default test message with the one from workflow input
+        sed -i "s/test_message = \".*\"/test_message = \"${{ github.event.inputs.test_message }}\"/" test_deployment.py
     
     - name: Run deployment test
       run: |
-        cd server
         python test_deployment.py
       continue-on-error: false
-    
-    - name: Check server logs if failed
-      if: failure()
-      run: |
-        echo "🔍 Checking for error details..."
-        cd server
-        echo ""
-        echo "=== Python processes ==="
-        ps aux | grep python
-        echo ""
-        echo "=== Port 8000 status ==="
-        lsof -i :8000 || echo "Port 8000 not in use"
-        echo ""
-        echo "=== Model file ==="
-        ls -la models/
-        file models/model.model
     
     - name: Upload test logs
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-logs
-        path: |
-          server/test_output.log
-          server/sessions/*.json
+        path: server/sessions/
         retention-days: 7
     
     - name: Create deployment summary
@@ -276,30 +70,11 @@ EOF
       run: |
         echo "## 📊 Deployment Test Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Download | ✅ | $(cd server/models && ls -lh model.model | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
-        echo "| Python Dependencies | ✅ | FastAPI + llama.cpp |" >> $GITHUB_STEP_SUMMARY
-        echo "| Server Startup | ✅ | Port 8000 |" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} | Test message sent |" >> $GITHUB_STEP_SUMMARY
-        echo "| Session Management | ${{ job.status == 'success' && '✅' || '❌' }} | Memory updated |" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Download | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Server Startup | ✅ |" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 🚀 Quick Start Guide" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "To access this server from outside:" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo '```bash' >> $GITHUB_STEP_SUMMARY
-        echo "# 1. Install ngrok" >> $GITHUB_STEP_SUMMARY
-        echo "curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null" >> $GITHUB_STEP_SUMMARY
-        echo "echo \"deb https://ngrok-agent.s3.amazonaws.com buster main\" | sudo tee /etc/apt/sources.list.d/ngrok.list" >> $GITHUB_STEP_SUMMARY
-        echo "sudo apt update && sudo apt install ngrok" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "# 2. Start the server (if not already running)" >> $GITHUB_STEP_SUMMARY
-        echo "cd server && python app.py" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "# 3. In another terminal, expose it with ngrok" >> $GITHUB_STEP_SUMMARY
-        echo "ngrok http 8000" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 📝 Test Message Used" >> $GITHUB_STEP_SUMMARY
+        echo "## 📝 Test Message" >> $GITHUB_STEP_SUMMARY
         echo "> \"${{ github.event.inputs.test_message }}\"" >> $GITHUB_STEP_SUMMARY
