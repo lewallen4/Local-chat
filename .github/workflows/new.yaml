@@ -39,5 +39,9 @@ jobs:
         echo "lets go"
         cd server/new
         pip install -r requirements.txt
+        mkdir models
+        cd models
+        wget -O model.model "https://huggingface.co/bartowski/Qwen_Qwen3.5-0.8B-GGUF/resolve/main/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf"
+        cd ..
         python server.py
         
