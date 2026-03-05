@@ -33,36 +33,84 @@ jobs:
           build-essential \
           cmake \
           wget \
-          curl
+          curl \
+          lsof
+    
+    - name: Create models directory if it doesn't exist
+      run: |
+        mkdir -p models
+        mkdir -p sessions
+        echo "📁 Directory structure:"
+        ls -la
     
     - name: Download model
       run: |
         echo "📥 Downloading model from: ${{ github.event.inputs.model_url }}"
-        cd server/models
+        cd models
         wget -O model.model "${{ github.event.inputs.model_url }}"
-        echo "✅ Model downloaded: $(ls -lh model.model)"
+        echo "✅ Model downloaded:"
+        ls -lh model.model
+    
+    - name: Verify model file
+      run: |
+        cd models
+        echo "🔍 Model file info:"
+        file model.model
+        echo "📊 Model size: $(du -h model.model | cut -f1)"
     
     - name: Install Python dependencies
       run: |
-        cd server
-        pip install -r requirements.txt
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        else
+          echo "📦 Installing default dependencies..."
+          pip install fastapi==0.104.1 uvicorn[standard]==0.24.0 jinja2==3.1.2 python-multipart==0.0.6 httpx==0.25.1 aiofiles==23.2.1 llama-cpp-python==0.2.26
+        fi
+        echo ""
+        echo "✅ Installed packages:"
+        pip list | grep -E "fastapi|uvicorn|llama-cpp|httpx"
     
     - name: Update test message in script
       run: |
         # Replace the default test message with the one from workflow input
-        sed -i "s/test_message = \".*\"/test_message = \"${{ github.event.inputs.test_message }}\"/" test_deployment.py
+        if [ -f "test_deployment.py" ]; then
+          sed -i "s/test_message = \".*\"/test_message = \"${{ github.event.inputs.test_message }}\"/" test_deployment.py
+          echo "✅ Updated test message in test_deployment.py"
+        else
+          echo "⚠️ test_deployment.py not found, will use default"
+        fi
     
     - name: Run deployment test
       run: |
         python test_deployment.py
       continue-on-error: false
     
+    - name: Check server logs if failed
+      if: failure()
+      run: |
+        echo "🔍 Checking for error details..."
+        echo ""
+        echo "=== Python processes ==="
+        ps aux | grep python
+        echo ""
+        echo "=== Port 8000 status ==="
+        lsof -i :8000 || echo "Port 8000 not in use"
+        echo ""
+        echo "=== Model file ==="
+        ls -la models/
+        file models/model.model || echo "Model file not found"
+        echo ""
+        echo "=== Current directory contents ==="
+        ls -la
+    
     - name: Upload test logs
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-logs
-        path: server/sessions/
+        path: |
+          sessions/*.json
+          test_output.log
         retention-days: 7
     
     - name: Create deployment summary
@@ -70,11 +118,30 @@ jobs:
       run: |
         echo "## 📊 Deployment Test Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Download | ✅ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Server Startup | ✅ |" >> $GITHUB_STEP_SUMMARY
-        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Download | ✅ | $(cd models && ls -lh model.model | awk '{print $5}') |" >> $GITHUB_STEP_SUMMARY
+        echo "| Python Dependencies | ✅ | FastAPI + llama.cpp |" >> $GITHUB_STEP_SUMMARY
+        echo "| Server Startup | ✅ | Port 8000 |" >> $GITHUB_STEP_SUMMARY
+        echo "| Model Inference | ${{ job.status == 'success' && '✅' || '❌' }} | Test message sent |" >> $GITHUB_STEP_SUMMARY
+        echo "| Session Management | ${{ job.status == 'success' && '✅' || '❌' }} | Memory updated |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## 📝 Test Message" >> $GITHUB_STEP_SUMMARY
         echo "> \"${{ github.event.inputs.test_message }}\"" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 Quick Start Guide" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "To access this server from outside:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "# 1. Install ngrok" >> $GITHUB_STEP_SUMMARY
+        echo "curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null" >> $GITHUB_STEP_SUMMARY
+        echo "echo \"deb https://ngrok-agent.s3.amazonaws.com buster main\" | sudo tee /etc/apt/sources.list.d/ngrok.list" >> $GITHUB_STEP_SUMMARY
+        echo "sudo apt update && sudo apt install ngrok" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# 2. Start the server" >> $GITHUB_STEP_SUMMARY
+        echo "python app.py" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# 3. In another terminal, expose it with ngrok" >> $GITHUB_STEP_SUMMARY
+        echo "ngrok http 8000" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
