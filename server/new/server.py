@@ -289,8 +289,9 @@ class SessionManager:
 class LLMManager:
     """Manages the LLM model loading and inference"""
     
-    def __init__(self, models_dir: str = "models"):
+    def __init__(self, models_dir: str = "models", specific_model: str = None):
         self.models_dir = Path(models_dir)
+        self.specific_model = specific_model
         self.model = None
         self.model_path = None
         self.model_lock = threading.Lock()
@@ -298,6 +299,16 @@ class LLMManager:
     
     def find_model(self) -> Optional[Path]:
         """Find a GGUF model in the models directory"""
+        # If specific model is provided, use it
+        if self.specific_model:
+            model_path = self.models_dir / self.specific_model
+            if model_path.exists():
+                return model_path
+            else:
+                logger.error(f"Specific model {self.specific_model} not found in {self.models_dir}")
+                return None
+        
+        # Otherwise find the largest GGUF file
         gguf_files = list(self.models_dir.glob("*.gguf"))
         if not gguf_files:
             return None
@@ -848,17 +859,18 @@ HTML_TEMPLATE = """
 class ChatServer:
     """Main Flask application"""
     
-    def __init__(self, models_dir: str = "models", host: str = "0.0.0.0", port: int = 5000):
+    def __init__(self, models_dir: str = "models", specific_model: str = None, host: str = "0.0.0.0", port: int = 5000):
         self.app = Flask(__name__)
         CORS(self.app)
         self.host = host
         self.port = port
         self.models_dir = Path(models_dir)
+        self.specific_model = specific_model
         
         # Initialize components
         self.memory_manager = MemoryManager(models_dir)
         self.session_manager = SessionManager(self.memory_manager)
-        self.llm_manager = LLMManager(models_dir)
+        self.llm_manager = LLMManager(models_dir, specific_model)
         
         # Setup routes
         self.setup_routes()
@@ -967,6 +979,8 @@ def main():
     parser = argparse.ArgumentParser(description='Local LLM Chat Server with Memory')
     parser.add_argument('--models-dir', type=str, default='models',
                        help='Directory containing GGUF models (default: models)')
+    parser.add_argument('--model', type=str, default=None,
+                       help='Specific model filename to load (default: auto-detect)')
     parser.add_argument('--host', type=str, default='0.0.0.0',
                        help='Host to bind to (default: 0.0.0.0)')
     parser.add_argument('--port', type=int, default=5000,
@@ -977,10 +991,11 @@ def main():
     args = parser.parse_args()
     
     # Create models directory if it doesn't exist
-    Path(args.models_dir).mkdir(exist_ok=True)
+    models_path = Path(args.models_dir)
+    models_path.mkdir(exist_ok=True)
     
     # Create memory file if it doesn't exist
-    memory_file = Path(args.models_dir) / "memory.md"
+    memory_file = models_path / "memory.md"
     if not memory_file.exists():
         with open(memory_file, 'w') as f:
             f.write("# LLM Memory Bank\n\n")
@@ -990,6 +1005,7 @@ def main():
     # Start server
     server = ChatServer(
         models_dir=args.models_dir,
+        specific_model=args.model,
         host=args.host,
         port=args.port
     )
