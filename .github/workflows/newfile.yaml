@@ -81,7 +81,7 @@ jobs:
         
         echo "📥 Downloading TinyLlama model (much smaller and more compatible)..."
         # Download a tiny model that's known to work well with llama.cpp
-        wget -O mistral.gguf "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_0.gguf"
+        wget -O mistral.gguf "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
         
         # Verify download
         if [ -f tinyllama.gguf ]; then
