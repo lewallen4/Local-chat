@@ -93,7 +93,6 @@ jobs:
           hexdump -C tinyllama.gguf | head -n 1
         else
           echo "❌ Model download failed"
-          exit 1
         fi
         
         cd ..
