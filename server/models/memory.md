@@ -1,12 +1,12 @@
-# Haven Memory
+# Local-chat Memory
 
 ## FACTS
 <!-- Add persistent facts here. This section is never auto-modified. -->
 <!-- Examples:
-- User's name is Skye
-- Project: Haven — encrypted local chat + AI server
+- User's name is User
+- Project: Local-chat
 - Preferred stack: Python, FastAPI, llama.cpp
-- Running locally on [your machine description]
+- Running locally on a linux server
 -->
 
 ## RECENT SESSIONS
