@@ -29,6 +29,29 @@ import hashlib
 # Max recent sessions to keep in memory.md before trimming the oldest
 MAX_SESSIONS = 10
 
+# Path to the editable system prompt file.
+# Edit models/system_prompt.txt to change how the model behaves — no code changes needed.
+SYSTEM_PROMPT_PATH = Path("models/system_prompt.txt")
+
+SYSTEM_PROMPT_FALLBACK = (
+    "You are a helpful AI assistant running locally on the user's machine.\n"
+    "The CONVERSATION below is your complete shared context for this session.\n"
+    "Read the full conversation before responding.\n"
+    "If asked to recall something mentioned earlier, find it in the conversation above and repeat it exactly.\n"
+    "Answer directly and concisely, then stop. Do not write fake user messages or invent follow-up questions."
+)
+
+def load_system_prompt() -> str:
+    """Load system prompt from file, falling back to hardcoded default."""
+    try:
+        if SYSTEM_PROMPT_PATH.exists():
+            content = SYSTEM_PROMPT_PATH.read_text(encoding='utf-8').strip()
+            if content:
+                return content
+    except Exception as e:
+        print(f"Could not load system prompt from file: {e}")
+    return SYSTEM_PROMPT_FALLBACK
+
 # Max characters of memory injected into the prompt.
 # Keeps small models from choking on huge context.
 MAX_MEMORY_CHARS = 2000
@@ -125,12 +148,10 @@ class SessionManager:
                     cleaned = "…(earlier memory trimmed)\n" + cleaned[-MAX_MEMORY_CHARS:]
                 memory_block = f"CONTEXT FROM PREVIOUS SESSIONS:\n{cleaned}\n\n"
 
+        system_prompt = load_system_prompt()
+
         prompt = (
-            "You are a helpful AI assistant running locally on the user's machine.\n"
-            "The CONVERSATION below is your complete shared context for this session.\n"
-            "Read the full conversation before responding.\n"
-            "If asked to recall something mentioned earlier, find it in the conversation above and repeat it exactly.\n"
-            "Answer directly and concisely, then stop. Do not write fake user messages.\n\n"
+            f"{system_prompt}\n\n"
             f"{memory_block}"
             "CONVERSATION:\n"
             f"{conversation_block}\n"
@@ -172,32 +193,15 @@ class SessionManager:
 
     def _format_entry(self, summary: Dict) -> str:
         """Turn a summary dict into a compact, readable memory entry."""
-        ts    = summary.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
-        count = summary.get("message_count", 0)
+        ts     = summary.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
+        count  = summary.get("message_count", 0)
+        bullets = summary.get("bullets", "- (no summary)")
 
-        lines = [f"### {ts}  ({count} messages)"]
-
-        topics = summary.get("topics", [])
-        if topics:
-            lines.append("**Topics:** " + " · ".join(topics[:4]))
-
-        user_facts = summary.get("user_facts", [])
-        if user_facts:
-            lines.append("**User said:**")
-            for f in user_facts[:4]:
-                lines.append(f"  - {f}")
-
-        decisions = summary.get("decisions", [])
-        if decisions:
-            lines.append("**Decisions/plans:**")
-            for d in decisions[:3]:
-                lines.append(f"  - {d}")
-
-        tech = summary.get("tech_stack", [])
-        if tech:
-            lines.append("**Tech:** " + ", ".join(tech[:8]))
-
-        lines.append("")  # trailing blank line
+        lines = [
+            f"### {ts}  ({count} messages)",
+            bullets,
+            "",   # trailing blank line for clean separation
+        ]
         return "\n".join(lines)
 
     def _insert_entry(self, entry: str) -> None:
