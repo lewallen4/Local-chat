@@ -34,6 +34,7 @@ _memory_path = os.environ.get("HAVEN_MEMORY_PATH", "models/memory.md")
 model_loader    = ModelLoader(_model_path)
 session_manager = SessionManager(_memory_path)
 summarizer      = SessionSummarizer()
+summarizer.set_model(model_loader)   # inject model so summarizer can call generate_simple()
 
 active_sessions: Dict[str, dict] = {}
 
