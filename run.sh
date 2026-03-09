@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Haven Local AI — Run Script
-#  Usage: bash run.sh [--port 8000] [--host 0.0.0.0] [--dev]
+#  Local Chat LLM — Run Script
+#  Usage: bash run.sh [--port 8000] [--lan] [--dev]
 #         bash run.sh --help
 # ============================================================
 
@@ -15,24 +15,22 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 # ── Configuration (edit these) ─────────────────────────────────────
-HOST="127.0.0.1"       # 0.0.0.0 to expose on your LAN
+HOST="127.0.0.1"        # 0.0.0.0 to expose on your LAN
 PORT="8000"
-WORKERS="1"            # Keep 1 for local LLM (model loaded once)
+WORKERS="1"             # Keep 1 — model is loaded once per process
 MODEL_FILE="model.gguf" # Filename inside server/models/
 LOG_LEVEL="info"        # debug | info | warning | error
-RELOAD="false"          # Hot-reload for development
+RELOAD="false"          # Hot-reload (dev only)
 
 # ── Paths ──────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$SCRIPT_DIR/server"
 MODELS_DIR="$SERVER_DIR/models"
-VENV_DIR="$SCRIPT_DIR/.venv"
 
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
-    PYTHON="$VENV_DIR/Scripts/python"
-else
-    PYTHON="$VENV_DIR/bin/python"
-fi
+# Same venv location as setup.sh — outside the repo so it
+# survives git pulls and works on systems blocking system pip.
+VENV_DIR="$HOME/.localchat-venv"
+PYTHON="$VENV_DIR/bin/python"
 
 # ── Helpers ────────────────────────────────────────────────────────
 step()  { echo -e "\n${CYAN}▶${RESET} ${BOLD}$1${RESET}"; }
@@ -46,9 +44,9 @@ usage() {
     echo ""
     echo "Options:"
     echo "  --host HOST     Bind address (default: 127.0.0.1)"
-    echo "  --port PORT     Port number (default: 8000)"
-    echo "  --dev           Enable hot-reload for development"
+    echo "  --port PORT     Port number  (default: 8000)"
     echo "  --lan           Expose on LAN (sets host to 0.0.0.0)"
+    echo "  --dev           Enable hot-reload + debug logging"
     echo "  --model FILE    Model filename in server/models/"
     echo "  --help          Show this message"
     echo ""
@@ -58,11 +56,11 @@ usage() {
 # ── Argument parsing ───────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --host)   HOST="$2";        shift 2 ;;
-        --port)   PORT="$2";        shift 2 ;;
-        --model)  MODEL_FILE="$2";  shift 2 ;;
-        --dev)    RELOAD="true";    LOG_LEVEL="debug"; shift ;;
-        --lan)    HOST="0.0.0.0";   shift ;;
+        --host)   HOST="$2";       shift 2 ;;
+        --port)   PORT="$2";       shift 2 ;;
+        --model)  MODEL_FILE="$2"; shift 2 ;;
+        --dev)    RELOAD="true";   LOG_LEVEL="debug"; shift ;;
+        --lan)    HOST="0.0.0.0";  shift ;;
         --help)   usage ;;
         *)        warn "Unknown option: $1"; shift ;;
     esac
@@ -71,7 +69,7 @@ done
 # ── Banner ─────────────────────────────────────────────────────────
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}║           Haven Local AI                 ║${RESET}"
+echo -e "${CYAN}${BOLD}║          Local Chat — LLM                ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
 
 # ── Pre-flight checks ──────────────────────────────────────────────
@@ -79,14 +77,13 @@ step "Pre-flight checks"
 
 # Virtualenv
 if [ ! -f "$PYTHON" ]; then
-    die "Virtual environment not found. Run:  bash setup.sh"
+    die "Virtualenv not found at $VENV_DIR\n  Run:  bash setup.sh"
 fi
-ok "Virtual environment found"
+ok "Virtualenv found at $VENV_DIR"
 
 # Model file
 MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
 if [ ! -f "$MODEL_PATH" ]; then
-    # Try to find any .gguf file
     FALLBACK=$(find "$MODELS_DIR" -name "*.gguf" -o -name "*.model" 2>/dev/null | head -1)
     if [ -n "$FALLBACK" ]; then
         MODEL_FILE="$(basename "$FALLBACK")"
@@ -115,7 +112,7 @@ if command -v lsof >/dev/null 2>&1; then
 fi
 ok "Port $PORT is available"
 
-# ── Export model path for the server ──────────────────────────────
+# ── Export env vars for the server ────────────────────────────────
 export HAVEN_MODEL_PATH="$MODEL_PATH"
 export HAVEN_MEMORY_PATH="$MODELS_DIR/memory.md"
 
@@ -133,18 +130,18 @@ if [ "$RELOAD" = "true" ]; then
     warn "Hot-reload enabled (development mode)"
 fi
 
-# ── Launch info ─────────────────────────────────────────────────────
+# ── Launch info ────────────────────────────────────────────────────
 step "Starting server"
 echo ""
 echo -e "  ${BOLD}Local:${RESET}   http://localhost:$PORT"
 if [ "$HOST" = "0.0.0.0" ]; then
-    # Try to get LAN IP
     LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "your-ip")
     echo -e "  ${BOLD}Network:${RESET} http://$LAN_IP:$PORT"
 fi
 echo ""
 echo -e "  ${BOLD}Model:${RESET}   $MODEL_FILE"
 echo -e "  ${BOLD}Memory:${RESET}  $MODELS_DIR/memory.md"
+echo -e "  ${BOLD}Venv:${RESET}    $VENV_DIR"
 echo ""
 echo -e "  Press ${BOLD}Ctrl+C${RESET} to stop"
 echo ""
@@ -154,7 +151,7 @@ echo ""
 # ── Trap for clean shutdown ────────────────────────────────────────
 cleanup() {
     echo ""
-    echo -e "\n${YELLOW}Shutting down Haven...${RESET}"
+    echo -e "\n${YELLOW}Shutting down Local Chat...${RESET}"
     echo "Session memory preserved in server/models/memory.md"
     echo ""
 }
