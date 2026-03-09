@@ -1,60 +1,48 @@
 """
-summarizer.py — Extracts structured, useful facts from a session.
+summarizer.py — Uses the model to write a compact summary of each session.
 
-Design goals:
-- No model calls (fast, no extra tokens burned)
-- Output is a compact structured dict, not a prose blob
-- Focuses on what's actually useful to recall: user facts, decisions,
-  topics, named entities — not generic filler like "the tone was neutral"
+The summary is written into memory.md under RECENT SESSIONS so the model
+has useful context about past conversations on startup.
+
+If the model call fails for any reason (model not loaded, timeout, etc.)
+the fallback is a minimal entry with just the message count and timestamp
+so memory.md always gets something written.
 """
 
-import re
-from typing import List, Dict, Tuple
+from typing import List, Dict
 from datetime import datetime
 
 
-# ── Patterns we care about ──────────────────────────────────────────
+# ── Summary prompt ──────────────────────────────────────────────────
+# Kept very short and directive so even TinyLlama produces clean output.
+# The model is asked for plain bullet points — no headers, no prose,
+# easy to inject into future prompts without confusing the model.
 
-# Things the user stated about themselves
-USER_FACT_PATTERNS = [
-    r"\bmy name is\b",
-    r"\bi('m| am)\b",
-    r"\bi work\b",
-    r"\bi use\b",
-    r"\bi prefer\b",
-    r"\bi like\b",
-    r"\bi have\b",
-    r"\bi want\b",
-    r"\bi need\b",
-    r"\bwe('re| are)\b",
-    r"\bmy (project|app|system|server|setup|repo|code|file)\b",
-]
+SUMMARY_PROMPT_TEMPLATE = """\
+You are a note-taking assistant. Read this conversation and write a short memory note.
 
-# Action/decision signals
-DECISION_PATTERNS = [
-    r"\blet'?s\b",
-    r"\bwe('ll| will)\b",
-    r"\bi('ll| will)\b",
-    r"\bdecided\b",
-    r"\bgoing to\b",
-    r"\bplan to\b",
-    r"\bneed to\b",
-    r"\bshould\b",
-]
+Rules:
+- Maximum 6 bullet points total
+- Each bullet starts with "- "
+- Only include facts, decisions, or topics that would be useful to remember later
+- Do not summarize the AI's responses, only what the USER said or decided
+- Do not add headers, titles, or any formatting other than "- " bullets
+- If there is nothing worth remembering, write only: - (no notable facts)
 
-# Technical named entities (crude but effective without NLP)
-TECH_PATTERN = re.compile(
-    r'\b(python|fastapi|flask|uvicorn|llama|gguf|ollama|docker|nginx|'
-    r'git|github|postgres|sqlite|redis|react|javascript|typescript|'
-    r'linux|ubuntu|windows|mac|ssh|ngrok|aws|gcp|azure|api|json|'
-    r'haven|model|server|endpoint|route|session|memory)\b',
-    re.IGNORECASE
-)
+CONVERSATION:
+{conversation}
+
+MEMORY NOTE:"""
 
 
 class SessionSummarizer:
     def __init__(self):
-        pass
+        # model_loader is injected after init to avoid circular imports
+        self._model = None
+
+    def set_model(self, model_loader) -> None:
+        """Called by app.py after both objects are created."""
+        self._model = model_loader
 
     async def summarize_session(
         self,
@@ -62,87 +50,77 @@ class SessionSummarizer:
         existing_memory: str = ""
     ) -> Dict:
         """
-        Returns a structured summary dict:
+        Returns a summary dict consumed by session_manager.save_to_memory().
         {
-            "user_facts":   [...],   # things user said about themselves/their setup
-            "decisions":    [...],   # action items or conclusions reached
-            "topics":       [...],   # main subjects discussed
-            "tech_stack":   [...],   # technologies mentioned
+            "bullets":       str,   # the model's bullet-point summary
             "message_count": int,
-            "timestamp":    str,
+            "timestamp":     str,
         }
+        Falls back gracefully if model is unavailable.
         """
         if not messages:
             return {}
 
-        user_msgs      = [m for m in messages if m["role"] == "user"]
-        assistant_msgs = [m for m in messages if m["role"] == "assistant"]
+        timestamp     = datetime.now().strftime("%Y-%m-%d %H:%M")
+        message_count = len(messages)
 
-        user_facts  = self._extract_user_facts(user_msgs)
-        decisions   = self._extract_decisions(user_msgs + assistant_msgs)
-        topics      = self._extract_topics(user_msgs)
-        tech_stack  = self._extract_tech(messages)
+        bullets = self._model_summary(messages)
 
         return {
-            "user_facts":    user_facts,
-            "decisions":     decisions,
-            "topics":        topics,
-            "tech_stack":    sorted(tech_stack),
-            "message_count": len(messages),
-            "timestamp":     datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "bullets":       bullets,
+            "message_count": message_count,
+            "timestamp":     timestamp,
         }
 
-    # ── Extractors ────────────────────────────────────────────────────
+    # ── Internal ──────────────────────────────────────────────────────
 
-    def _extract_user_facts(self, user_msgs: List[Dict]) -> List[str]:
-        """Sentences where the user stated something about themselves."""
-        facts = []
-        for msg in user_msgs:
-            sentences = self._split_sentences(msg["content"])
-            for s in sentences:
-                sl = s.lower()
-                if any(re.search(p, sl) for p in USER_FACT_PATTERNS):
-                    cleaned = s.strip()
-                    if 10 < len(cleaned) < 200:
-                        facts.append(cleaned)
-        # Deduplicate while preserving order
-        return list(dict.fromkeys(facts))[:8]
-
-    def _extract_decisions(self, messages: List[Dict]) -> List[str]:
-        """Sentences expressing a decision, plan, or action item."""
-        decisions = []
-        for msg in messages:
-            sentences = self._split_sentences(msg["content"])
-            for s in sentences:
-                sl = s.lower()
-                if any(re.search(p, sl) for p in DECISION_PATTERNS):
-                    cleaned = s.strip()
-                    if 10 < len(cleaned) < 200:
-                        decisions.append(cleaned)
-        return list(dict.fromkeys(decisions))[:6]
-
-    def _extract_topics(self, user_msgs: List[Dict]) -> List[str]:
+    def _model_summary(self, messages: List[Dict]) -> str:
         """
-        Core subject of each user message — the first meaningful noun phrase
-        or question, kept short so the memory stays scannable.
+        Ask the model to summarize the session.
+        Returns a string of "- bullet" lines, or a fallback if unavailable.
         """
-        topics = []
-        for msg in user_msgs:
-            text = msg["content"].strip()
-            # Take first sentence only
-            first = re.split(r'[.!?\n]', text)[0].strip()
-            if len(first) > 120:
-                first = first[:120] + "…"
-            if first:
-                topics.append(first)
-        return list(dict.fromkeys(topics))[:6]
+        if self._model is None:
+            return "- (summary unavailable — model not set)"
 
-    def _extract_tech(self, messages: List[Dict]) -> set:
-        """All technology names mentioned across the whole conversation."""
-        all_text = " ".join(m["content"] for m in messages)
-        return {m.lower() for m in TECH_PATTERN.findall(all_text)}
+        # Build a compact transcript for the prompt.
+        # We only send user messages — the model's own replies aren't
+        # useful to remember and waste context tokens.
+        user_lines = []
+        for m in messages:
+            if m["role"] == "user":
+                # Truncate very long messages to keep the prompt manageable
+                content = m["content"].strip()
+                if len(content) > 300:
+                    content = content[:300] + "…"
+                user_lines.append(f"User: {content}")
 
-    # ── Helpers ───────────────────────────────────────────────────────
+        if not user_lines:
+            return "- (no user messages to summarize)"
 
-    def _split_sentences(self, text: str) -> List[str]:
-        return [s for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
+        # Cap at last 20 user messages so the prompt stays under context limit
+        transcript = "\n".join(user_lines[-20:])
+        prompt     = SUMMARY_PROMPT_TEMPLATE.format(conversation=transcript)
+
+        try:
+            raw = self._model.generate_simple(prompt, max_tokens=200)
+        except Exception as e:
+            print(f"Summarizer model call failed: {e}")
+            return f"- (summary failed: {e})"
+
+        if not raw:
+            return "- (model returned empty summary)"
+
+        # Clean up the output — ensure every line starts with "- "
+        cleaned_lines = []
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if not line.startswith("- "):
+                line = "- " + line.lstrip("-• ").strip()
+            cleaned_lines.append(line)
+
+        if not cleaned_lines:
+            return "- (no summary produced)"
+
+        return "\n".join(cleaned_lines[:6])  # hard cap at 6 bullets
