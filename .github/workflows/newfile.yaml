@@ -1,4 +1,4 @@
-name: Haven — Run Local AI Server
+name: Run Local AI Server
 
 on:
   workflow_dispatch:  # Manual trigger only
