@@ -21,24 +21,18 @@ except ImportError as e:
 
 
 # ── Stop sequences ──────────────────────────────────────────────────
-# These are every realistic way a model might try to start a new fake
-# "user" turn. The more variants we cover, the less it can hallucinate.
 STOP_SEQUENCES = [
-    # Exact role prefixes the prompt uses
     "\nUSER:",
     "\nUser:",
     "\nuser:",
-    # Common alternatives models learn from training data
     "\nHuman:",
     "\nHUMAN:",
     "\nhuman:",
-    # Sometimes models write the full word
     "\n### Human",
     "\n### User",
-    "\n[INST]",       # Mistral / Llama instruct format
-    "\n<|user|>",     # Some chat templates
+    "\n[INST]",
+    "\n<|user|>",
     "\n<human>",
-    # Without leading newline as a safety net
     "User:",
     "Human:",
 ]
@@ -91,6 +85,36 @@ class ModelLoader:
 
         raise RuntimeError("No suitable backend found to load the model")
 
+    def generate_simple(self, prompt: str, max_tokens: int = 300) -> str:
+        """
+        One-shot blocking generation — no streaming, no SSE.
+        Used for internal tasks like summarization where we just need
+        the full text back without yielding chunks to a client.
+        Falls back to empty string on any error so callers don't crash.
+        """
+        if self.backend == "llama.cpp":
+            try:
+                result = self.model(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=0.4,    # lower temp = more factual summary
+                    top_p=0.9,
+                    repeat_penalty=1.1,
+                    stop=STOP_SEQUENCES + ["###", "---"],
+                    echo=False,
+                    stream=False,
+                )
+                return result["choices"][0]["text"].strip()
+            except Exception as e:
+                print(f"generate_simple error: {e}")
+                return ""
+
+        elif self.backend == "transformers":
+            # Minimal transformers path — not heavily used
+            return ""
+
+        return ""
+
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         prompt = context.get("prompt", "")
 
@@ -98,21 +122,18 @@ class ModelLoader:
             try:
                 stream = self.model(
                     prompt,
-                    max_tokens=512,        # was 256 — gives the model room to finish a thought
+                    max_tokens=512,
                     temperature=0.7,
                     top_p=0.95,
-                    repeat_penalty=1.1,    # discourages looping/repeating patterns
+                    repeat_penalty=1.1,
                     stop=STOP_SEQUENCES,
                     echo=False,
                     stream=True,
                 )
                 for chunk in stream:
                     text = chunk["choices"][0]["text"]
-                    # Hard client-side guard: if a stop token somehow leaked
-                    # through, strip it and end generation cleanly.
                     for stop in STOP_SEQUENCES:
                         if stop.strip() in text:
-                            # Yield whatever came before the stop token
                             before = text[:text.find(stop.strip())]
                             if before:
                                 yield before
