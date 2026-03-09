@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Haven Local AI — Setup Script
+#  Local Chat LLM — Setup Script
 #  Run once to prepare your environment.
 #  Usage: bash setup.sh
 # ============================================================
@@ -17,12 +17,15 @@ RESET='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$SCRIPT_DIR/server"
 MODELS_DIR="$SERVER_DIR/models"
-VENV_DIR="$SCRIPT_DIR/.venv"
+
+# Venv lives in HOME so it survives across repo updates and
+# works on systems that block pip from touching system Python.
+VENV_DIR="$HOME/.localchat-venv"
 
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}║           Haven Local AI Setup           ║${RESET}"
+    echo -e "${CYAN}${BOLD}║        Local Chat LLM — Setup            ║${RESET}"
     echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
     echo ""
 }
@@ -37,21 +40,20 @@ check_prereqs() {
     step "Checking prerequisites"
 
     command -v python3 >/dev/null 2>&1 || die "python3 not found. Install Python 3.9+."
-    PY_VERSION=$(python3 -c 'import sys; print(sys.version_info[:2])')
     ok "Python found: $(python3 --version)"
 
-    command -v pip3 >/dev/null 2>&1 || command -v pip >/dev/null 2>&1 || \
-        die "pip not found. Install pip first."
-    ok "pip found"
+    # Check that python3-venv/python3-full are available
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        die "python3-venv not available.\n  Ubuntu/Debian: sudo apt install python3-venv python3-full\n  Then re-run setup.sh"
+    fi
+    ok "python3-venv available"
 
-    # Check cmake (needed for llama-cpp-python build)
     if command -v cmake >/dev/null 2>&1; then
         ok "cmake found: $(cmake --version | head -1)"
     else
         warn "cmake not found — llama-cpp-python may fail to build."
-        warn "  On Ubuntu/Debian: sudo apt install cmake build-essential"
-        warn "  On macOS:         brew install cmake"
-        warn "  On Windows:       choco install cmake"
+        warn "  Ubuntu/Debian: sudo apt install cmake build-essential"
+        warn "  macOS:         brew install cmake"
     fi
 }
 
@@ -60,24 +62,18 @@ setup_venv() {
     step "Setting up virtual environment"
 
     if [ -d "$VENV_DIR" ]; then
-        warn "Virtual environment already exists at .venv — skipping creation."
+        ok "Reusing existing virtualenv at $VENV_DIR"
     else
         python3 -m venv "$VENV_DIR"
-        ok "Created virtual environment at .venv"
+        ok "Created virtualenv at $VENV_DIR"
     fi
 
-    # Activate
-    # shellcheck disable=SC1091
-    if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" || "$OSTYPE" == "cygwin" ]]; then
-        VENV_ACTIVATE="$VENV_DIR/Scripts/activate"
-    else
-        VENV_ACTIVATE="$VENV_DIR/bin/activate"
-    fi
+    # Use the venv's pip and python directly — no need to activate
+    # the shell, which avoids sourcing issues on some systems.
+    PIP="$VENV_DIR/bin/pip"
+    PYTHON="$VENV_DIR/bin/python"
 
-    source "$VENV_ACTIVATE"
-    ok "Virtual environment activated"
-
-    pip install --upgrade pip --quiet
+    "$PIP" install --upgrade pip --quiet
     ok "pip upgraded"
 }
 
@@ -85,24 +81,31 @@ setup_venv() {
 install_deps() {
     step "Installing Python dependencies"
 
-    # Core web framework
-    pip install fastapi uvicorn[standard] jinja2 python-multipart httpx aiofiles --quiet
+    PIP="$VENV_DIR/bin/pip"
+    PYTHON="$VENV_DIR/bin/python"
+
+    "$PIP" install fastapi "uvicorn[standard]" jinja2 python-multipart httpx aiofiles --quiet
     ok "FastAPI stack installed"
 
-    # llama-cpp-python — try pre-built wheel first, fall back to source build
-    echo "  Installing llama-cpp-python (may take a minute if building from source)..."
-    if pip install llama-cpp-python --quiet 2>/dev/null; then
-        ok "llama-cpp-python installed (pre-built)"
+    # Only build llama-cpp-python if it isn't already importable —
+    # the source build takes several minutes, skip it when possible.
+    if "$PYTHON" -c "import llama_cpp" 2>/dev/null; then
+        ok "llama-cpp-python already installed — skipping"
     else
-        warn "Pre-built wheel failed. Building from source..."
-        CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" \
-            pip install llama-cpp-python --no-cache-dir
-        ok "llama-cpp-python built from source"
+        echo "  Installing llama-cpp-python (building from source, please wait)..."
+        if "$PIP" install llama-cpp-python --quiet 2>/dev/null; then
+            ok "llama-cpp-python installed (pre-built wheel)"
+        else
+            warn "Pre-built wheel unavailable. Building from source..."
+            CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS" \
+                "$PIP" install llama-cpp-python --no-cache-dir
+            ok "llama-cpp-python built from source"
+        fi
     fi
 
-    # Optional: sentencepiece
-    pip install sentencepiece --quiet 2>/dev/null && ok "sentencepiece installed" || \
-        warn "sentencepiece skipped (optional)"
+    "$PIP" install sentencepiece --quiet 2>/dev/null \
+        && ok "sentencepiece installed" \
+        || warn "sentencepiece skipped (optional)"
 }
 
 # ── Directory structure ────────────────────────────────────────────
@@ -110,30 +113,22 @@ setup_dirs() {
     step "Verifying directory structure"
 
     mkdir -p "$MODELS_DIR"
-    ok "models/ directory ready"
+    ok "server/models/ ready"
 
     mkdir -p "$SERVER_DIR/sessions"
-    ok "sessions/ directory ready"
+    ok "server/sessions/ ready"
 
-    # Create memory.md if missing
     if [ ! -f "$MODELS_DIR/memory.md" ]; then
-        cat > "$MODELS_DIR/memory.md" <<'EOF'
-# Session Memory
+        cat > "$MODELS_DIR/memory.md" << 'EOF'
+# Local Chat Memory
 
-## Lessons Learned
+## FACTS
+<!-- Add persistent facts here. This section is never auto-modified. -->
 
-This file stores accumulated knowledge from past conversations.
-Each new session will have access to this memory.
-
-## Initial Setup
-- Memory persistence enabled
-- Sessions auto-summarized on close
-
-## Guidelines
-- Memories are appended automatically
-- Each session gets a timestamped entry
+## RECENT SESSIONS
+<!-- Auto-managed. Newest entries appear first. Capped at 10 sessions. -->
 EOF
-        ok "Created models/memory.md"
+        ok "Created server/models/memory.md"
     else
         ok "memory.md already exists"
     fi
@@ -143,10 +138,8 @@ EOF
 check_model() {
     step "Checking for model file"
 
-    # Accept any .gguf file in models/
-    GGUF_FILES=("$MODELS_DIR"/*.gguf "$MODELS_DIR"/*.model 2>/dev/null)
     FOUND=0
-    for f in "${GGUF_FILES[@]}"; do
+    for f in "$MODELS_DIR"/*.gguf "$MODELS_DIR"/*.model; do
         [ -f "$f" ] && FOUND=1 && ok "Model found: $(basename "$f")" && break
     done
 
@@ -157,49 +150,35 @@ check_model() {
         echo "  Download a GGUF model and place it at:"
         echo "  → $MODELS_DIR/model.gguf"
         echo ""
-        echo "  Recommended options (small & fast on CPU):"
+        echo "  Recommended options:"
         echo ""
-        echo "  1) TinyLlama 1.1B (Q4, ~660 MB):"
+        echo "  1) TinyLlama 1.1B Q4 (~660 MB) — fastest:"
         echo "     https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF"
         echo "     File: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
         echo ""
-        echo "  2) Phi-2 (Q4, ~1.5 GB):"
+        echo "  2) Phi-2 Q4 (~1.5 GB) — good middle ground:"
         echo "     https://huggingface.co/TheBloke/phi-2-GGUF"
         echo "     File: phi-2.Q4_K_M.gguf"
         echo ""
-        echo "  3) Mistral 7B Instruct (Q4, ~4 GB):"
+        echo "  3) Mistral 7B Q4 (~4 GB) — best quality:"
         echo "     https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
         echo "     File: mistral-7b-instruct-v0.2.Q4_0.gguf"
         echo ""
-        echo "  After downloading, rename or update MODEL_FILE in run.sh."
     fi
-}
-
-# ── Write activation helper ────────────────────────────────────────
-write_env_helper() {
-    step "Writing environment activation helper"
-    cat > "$SCRIPT_DIR/.env.sh" <<EOF
-#!/usr/bin/env bash
-# Source this to activate Haven's environment:  source .env.sh
-source "$VENV_ACTIVATE"
-export PYTHONPATH="$SERVER_DIR:\$PYTHONPATH"
-echo "Haven environment active. Run: bash run.sh"
-EOF
-    chmod +x "$SCRIPT_DIR/.env.sh"
-    ok "Created .env.sh — source it to activate the environment manually"
 }
 
 # ── Done ───────────────────────────────────────────────────────────
 finish() {
     echo ""
     echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${GREEN}${BOLD}║            Setup complete! ✓             ║${RESET}"
+    echo -e "${GREEN}${BOLD}║           Setup complete! ✓              ║${RESET}"
     echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
+    echo ""
+    echo "  Virtualenv: $VENV_DIR"
     echo ""
     echo "  Next steps:"
     echo "  1. Place your .gguf model in server/models/"
-    echo "  2. Edit MODEL_FILE in run.sh if the filename differs"
-    echo "  3. Run:  bash run.sh"
+    echo "  2. Run:  bash run.sh"
     echo ""
 }
 
@@ -210,5 +189,4 @@ setup_venv
 install_deps
 setup_dirs
 check_model
-write_env_helper
 finish
