@@ -437,7 +437,7 @@ function setupEventListeners() {
                               stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </div>
-                <h2>Haven is ready.</h2>
+                <h2>Local Chat is ready.</h2>
                 <p>Your fully local AI assistant. No cloud, no telemetry, no traces.</p>
                 <div class="welcome-hints">
                     <span class="hint">↵ Send</span>
