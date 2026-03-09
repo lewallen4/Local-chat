@@ -1,0 +1,164 @@
+name: Haven — Run Local AI Server
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # GitHub Actions max is 360 — leave headroom
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          wget \
+          curl \
+          lsof \
+          libcurl4-openssl-dev \
+          libssl-dev \
+          python3-dev \
+          python3-pip \
+          libgomp1 \
+          libatomic1
+
+    - name: Install Python dependencies
+      run: |
+        cd server
+        pip install --upgrade pip --quiet
+        pip install fastapi "uvicorn[standard]" jinja2 python-multipart httpx aiofiles --quiet
+        pip install llama-cpp-python==0.2.26 --force-reinstall --no-cache-dir
+        echo "✅ Python dependencies installed"
+
+    - name: Download model
+      run: |
+        mkdir -p server/models
+        cd server/models
+
+        # ── Pick ONE model and uncomment it ──────────────────────────
+        #
+        # Option A: TinyLlama 1.1B Q4 (~660 MB) — fastest, lowest RAM
+        echo "📥 Downloading TinyLlama 1.1B..."
+        wget -q --show-progress \
+          -O model.gguf \
+          "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+        #
+        # Option B: Mistral 7B Q4 (~4 GB) — much better quality, needs more RAM
+        # wget -q --show-progress \
+        #   -O model.gguf \
+        #   "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_0.gguf"
+        #
+        # ─────────────────────────────────────────────────────────────
+
+        # Verify
+        if [ -f model.gguf ]; then
+          SIZE=$(du -h model.gguf | cut -f1)
+          echo "✅ model.gguf downloaded — $SIZE"
+          # Confirm valid GGUF magic bytes (first 4 bytes should be GGUF)
+          MAGIC=$(head -c 4 model.gguf)
+          echo "File magic: $MAGIC"
+        else
+          echo "❌ Download failed — model.gguf not found"
+          exit 1
+        fi
+
+    - name: Setup ngrok
+      run: |
+        # Install ngrok
+        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        sudo tar xzf ngrok-v3-stable-linux-amd64.tgz -C /usr/local/bin
+        rm ngrok-v3-stable-linux-amd64.tgz
+
+        # Authenticate
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+        # Tunnel port 8000 (where uvicorn runs)
+        ngrok http 8000 --log=stdout > /tmp/ngrok.log 2>&1 &
+
+        # Wait for tunnel to establish
+        sleep 5
+
+        # Extract public URL
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+
+        echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+
+        echo "================================================"
+        echo "✅ NGROK TUNNEL ESTABLISHED"
+        echo "🌐 Public URL: $NGROK_URL"
+        echo "================================================"
+
+    - name: Start Haven server
+      run: |
+        cd server
+
+        # Point the server at the downloaded model
+        export HAVEN_MODEL_PATH="models/model.gguf"
+        export HAVEN_MEMORY_PATH="models/memory.md"
+        export OMP_NUM_THREADS=2
+
+        echo "🚀 Starting Haven..."
+        echo "📡 Access via: ${{ env.NGROK_URL }}"
+        echo ""
+
+        # Start uvicorn in the background
+        python3 -m uvicorn app:app \
+          --host 0.0.0.0 \
+          --port 8000 \
+          --log-level info \
+          --workers 1 &
+
+        SERVER_PID=$!
+        echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+
+        # Wait for server to be ready
+        echo "Waiting for server to come up..."
+        for i in $(seq 1 30); do
+          if curl -s http://localhost:8000 > /dev/null 2>&1; then
+            echo "✅ Server is up (attempt $i)"
+            break
+          fi
+          echo "  ⏳ attempt $i/30..."
+          sleep 2
+        done
+
+        echo ""
+        echo "================================================"
+        echo "🌐 Haven is live at: ${{ env.NGROK_URL }}"
+        echo "================================================"
+        echo ""
+
+        # Keep the step alive — monitor both server and ngrok
+        while true; do
+          sleep 60
+          echo "[$(date '+%H:%M:%S')] Running — ${{ env.NGROK_URL }}"
+
+          # Restart ngrok if tunnel dropped
+          if ! curl -s http://localhost:4040/api/tunnels > /dev/null 2>&1; then
+            echo "⚠️  ngrok tunnel lost — restarting..."
+            ngrok http 8000 --log=stdout > /tmp/ngrok.log 2>&1 &
+            sleep 5
+            NEW_URL=$(curl -s http://localhost:4040/api/tunnels \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "unknown")
+            echo "🔄 New URL: $NEW_URL"
+          fi
+
+          # Restart server if it crashed
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "⚠️  Server process died — restarting..."
+            cd server
+            HAVEN_MODEL_PATH="models/model.gguf" \
+            HAVEN_MEMORY_PATH="models/memory.md" \
+            OMP_NUM_THREADS=2 \
+            python3 -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1 &
+            SERVER_PID=$!
+            echo "🔄 Server restarted (PID $SERVER_PID)"
+          fi
+        done
