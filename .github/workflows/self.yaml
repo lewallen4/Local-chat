@@ -1,0 +1,150 @@
+name: Self Hosted
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  organize-files:
+    runs-on: self-hosted
+    permissions:
+      contents: write  # Needed to push changes
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper commit
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+        build-essential \
+        cmake \
+        wget \
+        curl \
+        git \
+        lsof \
+        libcurl4-openssl-dev \
+        libssl-dev \
+        python3-dev \
+        python3-pip \
+        libgomp1 \
+        libatomic1 \
+        libstdc++6
+
+    - name: Setup ngrok
+      run: |
+        # Download and install ngrok
+        wget https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        sudo tar xvzf ngrok-v3-stable-linux-amd64.tgz -C /usr/local/bin
+        rm ngrok-v3-stable-linux-amd64.tgz
+        
+        # Configure ngrok with token from GitHub secrets
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        
+        # Start ngrok in background
+        ngrok http 5000 --log=stdout > ngrok.log 2>&1 &
+        
+        # Give ngrok time to start
+        sleep 3
+        
+        # Get the public URL
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+        echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+        
+        echo "=================================================="
+        echo "✅ NGROK TUNNEL ESTABLISHED"
+        echo "🌐 Public URL: $NGROK_URL"
+        echo "=================================================="
+
+    - name: Install Python dependencies
+      run: |
+        cd server/new
+        # First upgrade pip
+        pip install --upgrade pip
+        
+        # Install specific versions that are known to work
+        pip install flask flask-cors werkzeug
+        
+        # Install llama-cpp-python with specific version and build from source
+        pip install llama-cpp-python==0.2.26 --force-reinstall --no-cache-dir
+        
+        # Install torch CPU version (lighter for GitHub Actions)
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+    - name: Download and verify model
+      run: |
+        cd server/new
+        mkdir -p models
+        cd models
+        
+        echo "📥 Downloading TinyLlama model (much smaller and more compatible)..."
+        # Download a tiny model that's known to work well with llama.cpp
+        wget -O mistral.gguf "https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_0.gguf"
+        
+        # Verify download
+        if [ -f tinyllama.gguf ]; then
+          echo "✅ Model downloaded successfully"
+          echo "Model size: $(ls -lh tinyllama.gguf | awk '{print $5}')"
+          
+          # Check file header
+          echo "Checking file header..."
+          hexdump -C tinyllama.gguf | head -n 1
+        else
+          echo "❌ Model download failed"
+        fi
+        
+        cd ..
+
+
+    
+
+    - name: Bingo
+      if: success()
+      run: |
+        echo "lets go"
+        echo "📡 Ngrok tunnel is active at: ${{ env.NGROK_URL }}"
+        echo ""
+        cd server/new
+        
+        echo "🚀 Starting LLM Server..."
+        echo "📡 Access via Ngrok: ${{ env.NGROK_URL }}"
+        echo ""
+        
+        # Set environment variables for better compatibility
+        export LLAMA_CACHE_DIR="./cache"
+        export OMP_NUM_THREADS=2
+        
+        # Run the server with the tiny model
+        python server.py --model mistral.gguf
+
+    - name: Keep alive and monitor
+      if: always()
+      run: |
+        echo "📊 Server Status Monitor"
+        echo "========================"
+        echo "🌐 Ngrok URL: ${{ env.NGROK_URL }}"
+        echo "📡 Local URL: http://localhost:5000"
+        echo ""
+        
+        # Monitor ngrok and server
+        while true; do
+          sleep 60
+          echo "[$(date)] Server still running..."
+          
+          # Check if ngrok is still alive
+          if curl -s http://localhost:4040/api/tunnels > /dev/null; then
+            echo "✅ Ngrok tunnel active"
+          else
+            echo "⚠️ Ngrok tunnel lost! Attempting to restart..."
+            ngrok http 5000 --log=stdout > ngrok.log 2>&1 &
+          fi
+          
+          # Check if server is responding
+          if curl -s http://localhost:5000/api/health > /dev/null; then
+            echo "✅ Server responding"
+          else
+            echo "⚠️ Server not responding"
+          fi
+        done
