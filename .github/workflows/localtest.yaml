@@ -1,0 +1,21 @@
+name: script version test
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350  # GitHub Actions max is 360 — leave headroom
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install system dependencies
+      run: |
+        bash setup.sh
+        echo " "
+        bash model_loader.sh
+        echo " "
+        bash run.sh
