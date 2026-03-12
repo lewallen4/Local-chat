@@ -16,6 +16,6 @@ jobs:
       run: |
         bash setup.sh
         echo " "
-        bash model_loader.sh
+        bash model_pull.sh
         echo " "
         bash run.sh
