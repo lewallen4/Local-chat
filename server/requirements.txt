@@ -8,11 +8,7 @@ llama-cpp-python==0.2.26
 sentencepiece==0.2.0
 protobuf==3.20.3
 
-# For model loading - choose one based on your model type
+# For model loading
 # For GGUF models (recommended for CPU):
 llama-cpp-python==0.2.26
 
-# For Hugging Face transformers models:
-# transformers==4.35.0
-# torch==2.1.0
-# accelerate==0.24.1
