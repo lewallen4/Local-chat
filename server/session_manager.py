@@ -1,37 +1,36 @@
 """
 session_manager.py — Handles memory read/write and prompt construction.
 
+User workspace layout:
+
+  server/users/<user_id>/
+    memory.md          — per-user memory (cloned from models/default_memory.md on first login)
+    sessions/          — per-user session JSON logs
+
 Memory file structure (memory.md):
 
   ## FACTS
-  Persistent user/project facts you want the model to always know.
-  Manually editable. Never auto-overwritten, only appended to.
+  Persistent user/project facts. Manually editable. Never auto-overwritten.
 
   ## RECENT SESSIONS
   Rolling log of the last MAX_SESSIONS sessions, newest at top.
-  Auto-managed — oldest entry trimmed when cap is exceeded.
-
-This split means:
-- FACTS section stays small and high-signal forever
-- RECENT SESSIONS gives the model recent context without unbounded growth
-- The model gets both injected at prompt time
+  Auto-managed — oldest entry trimmed when cap exceeded.
 """
 
 import json
 import re
-import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import hashlib
 
 
-# Max recent sessions to keep in memory.md before trimming the oldest
 MAX_SESSIONS = 10
 
-# Path to the editable system prompt file.
-# Edit models/system_prompt.txt to change how the model behaves — no code changes needed.
 SYSTEM_PROMPT_PATH = Path("models/system_prompt.txt")
+DEFAULT_MEMORY_PATH = Path("models/default_memory.md")
+USERS_DIR = Path("users")
 
 SYSTEM_PROMPT_FALLBACK = (
     "You are a helpful AI assistant running locally on the user's machine.\n"
@@ -41,105 +40,116 @@ SYSTEM_PROMPT_FALLBACK = (
     "Answer directly and concisely, then stop. Do not write fake user messages or invent follow-up questions."
 )
 
-def load_system_prompt() -> str:
-    """Load system prompt from file, falling back to hardcoded default."""
-    try:
-        if SYSTEM_PROMPT_PATH.exists():
-            content = SYSTEM_PROMPT_PATH.read_text(encoding='utf-8').strip()
-            if content:
-                return content
-    except Exception as e:
-        print(f"Could not load system prompt from file: {e}")
-    return SYSTEM_PROMPT_FALLBACK
-
-# Max characters of memory injected into the prompt.
-# Keeps small models from choking on huge context.
 MAX_MEMORY_CHARS = 2000
 
-MEMORY_TEMPLATE = """\
-# Haven Memory
+DEFAULT_MEMORY_TEMPLATE = """\
+# Local-chat Memory
 
 ## FACTS
-<!-- Add persistent facts here. This section is never auto-modified. -->
-<!-- Examples:
-- User's name is Skye
-- Project: Haven — encrypted local chat + AI server
-- Preferred stack: Python, FastAPI, llama.cpp
--->
+- User ID: {user_id}
 
 ## RECENT SESSIONS
-<!-- Auto-managed. Do not edit manually below this line. -->
+<!-- Auto-managed. Newest entries appear first. Capped at 10 sessions. -->
 """
 
 
-class SessionManager:
-    def __init__(self, memory_file: str):
-        self.memory_file  = Path(memory_file)
-        self.sessions_dir = Path("sessions")
-        self.sessions_dir.mkdir(exist_ok=True)
+def load_system_prompt() -> str:
+    try:
+        if SYSTEM_PROMPT_PATH.exists():
+            content = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8").strip()
+            if content:
+                return content
+    except Exception as e:
+        print(f"Could not load system prompt: {e}")
+    return SYSTEM_PROMPT_FALLBACK
 
-        if not self.memory_file.exists():
-            self.memory_file.parent.mkdir(parents=True, exist_ok=True)
-            self.memory_file.write_text(MEMORY_TEMPLATE, encoding='utf-8')
+
+def get_user_dir(user_id: str) -> Path:
+    """Return the workspace directory for a given user ID."""
+    return USERS_DIR / user_id
+
+
+def provision_user(user_id: str) -> Path:
+    """
+    Create the user's workspace if it doesn't exist yet.
+    Clones the default memory file, stamping in the user's ID.
+    Returns the user directory path.
+    """
+    user_dir = get_user_dir(user_id)
+    sessions_dir = user_dir / "sessions"
+    memory_file = user_dir / "memory.md"
+
+    user_dir.mkdir(parents=True, exist_ok=True)
+    sessions_dir.mkdir(exist_ok=True)
+
+    if not memory_file.exists():
+        if DEFAULT_MEMORY_PATH.exists():
+            # Clone the default and inject user ID into FACTS
+            base = DEFAULT_MEMORY_PATH.read_text(encoding="utf-8")
+            # Replace the placeholder name if present, otherwise append
+            if "{user_id}" in base:
+                stamped = base.replace("{user_id}", user_id)
+            else:
+                stamped = base
+            memory_file.write_text(stamped, encoding="utf-8")
+        else:
+            # Fallback: generate from template
+            memory_file.write_text(
+                DEFAULT_MEMORY_TEMPLATE.format(user_id=user_id), encoding="utf-8"
+            )
+        print(f"  ✓ Provisioned new workspace for user: {user_id}")
+    else:
+        print(f"  ↩ Returning user: {user_id}")
+
+    return user_dir
+
+
+def is_returning_user(user_id: str) -> bool:
+    """Return True if this user already has a workspace."""
+    return (get_user_dir(user_id) / "memory.md").exists()
+
+
+class SessionManager:
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        user_dir = provision_user(user_id)
+        self.memory_file = user_dir / "memory.md"
+        self.sessions_dir = user_dir / "sessions"
+        self.sessions_dir.mkdir(exist_ok=True)
 
     # ── Public API ────────────────────────────────────────────────────
 
     def load_memory(self) -> str:
-        """Return full memory.md text."""
         try:
-            return self.memory_file.read_text(encoding='utf-8')
+            return self.memory_file.read_text(encoding="utf-8")
         except Exception as e:
-            print(f"Error loading memory: {e}")
+            print(f"Error loading memory for {self.user_id}: {e}")
             return ""
 
     def save_to_memory(self, summary: Dict, messages: List[Dict]) -> None:
-        """
-        Append a new session entry to the RECENT SESSIONS section,
-        then trim to MAX_SESSIONS.
-        """
         if not summary:
             return
-
         entry = self._format_entry(summary)
         self._insert_entry(entry)
         self._trim_old_entries()
 
     def _clean_memory_for_prompt(self, raw: str) -> str:
-        """
-        Strip everything that would confuse the model:
-        - HTML comments <!-- ... -->  (these were making the model hallucinate
-          a multi-user system by reading the template instructions)
-        - Markdown headers (## FACTS, ## RECENT SESSIONS, # Haven Memory)
-        - Excess blank lines
-        Returns only actual content the model should know about.
-        """
-        # Remove HTML block comments (multiline)
-        cleaned = re.sub(r'<!--.*?-->', '', raw, flags=re.DOTALL)
-        # Remove markdown headers
-        cleaned = re.sub(r'^#{1,3} .*$', '', cleaned, flags=re.MULTILINE)
-        # Collapse 3+ blank lines down to one
-        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        cleaned = re.sub(r"<!--.*?-->", "", raw, flags=re.DOTALL)
+        cleaned = re.sub(r"^#{1,3} .*$", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 
     def prepare_context(self, messages: List[Dict], global_memory: str) -> Dict[str, Any]:
-        """
-        Build the prompt sent to the model.
-
-        Memory is trimmed to MAX_MEMORY_CHARS so small models don't overflow.
-        Only the last 12 messages are included in the conversation block.
-        Role labels (USER/ASSISTANT) match the stop sequences in model_loader.py.
-        """
         recent = messages[-12:]
 
         conversation_lines = []
         for msg in recent:
-            role    = "USER" if msg["role"] == "user" else "ASSISTANT"
+            role = "USER" if msg["role"] == "user" else "ASSISTANT"
             content = msg["content"].strip()
             conversation_lines.append(f"{role}: {content}")
 
         conversation_block = "\n".join(conversation_lines)
 
-        # Strip comments/headers, then trim to budget
         memory_block = ""
         if global_memory and global_memory.strip():
             cleaned = self._clean_memory_for_prompt(global_memory)
@@ -159,31 +169,50 @@ class SessionManager:
         )
 
         return {
-            "prompt":        prompt,
-            "memory_used":   bool(global_memory),
+            "prompt": prompt,
+            "memory_used": bool(global_memory),
             "message_count": len(messages),
         }
 
     def save_session_log(self, session_id: str, session_data: Dict) -> None:
-        """Save full session transcript as JSON (separate from memory.md)."""
-        log_file  = self.sessions_dir / f"session_{session_id}.json"
+        log_file = self.sessions_dir / f"session_{session_id}.json"
         save_data = {
-            "session_id":    session_id,
-            "created_at":    _iso(session_data.get("created_at")),
-            "ended_at":      datetime.now().isoformat(),
+            "session_id": session_id,
+            "user_id": self.user_id,
+            "created_at": _iso(session_data.get("created_at")),
+            "ended_at": datetime.now().isoformat(),
             "message_count": len(session_data.get("messages", [])),
-            "messages":      session_data.get("messages", []),
-            "metadata":      session_data.get("metadata", {}),
+            "messages": session_data.get("messages", []),
+            "metadata": session_data.get("metadata", {}),
         }
-        with open(log_file, 'w', encoding='utf-8') as f:
+        with open(log_file, "w", encoding="utf-8") as f:
             json.dump(save_data, f, indent=2, ensure_ascii=False)
 
     def load_session_log(self, session_id: str) -> Optional[Dict]:
         log_file = self.sessions_dir / f"session_{session_id}.json"
         if log_file.exists():
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, "r", encoding="utf-8") as f:
                 return json.load(f)
         return None
+
+    def list_sessions(self) -> List[Dict]:
+        """Return a summary list of all saved sessions for this user, newest first."""
+        logs = sorted(self.sessions_dir.glob("session_*.json"), reverse=True)
+        result = []
+        for log in logs[:20]:  # cap at 20 for the sidebar
+            try:
+                with open(log, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                result.append({
+                    "session_id": data.get("session_id", ""),
+                    "created_at": data.get("created_at", ""),
+                    "ended_at": data.get("ended_at", ""),
+                    "message_count": data.get("message_count", 0),
+                    "preview": _session_preview(data.get("messages", [])),
+                })
+            except Exception:
+                pass
+        return result
 
     def get_session_hash(self, messages: List[Dict]) -> str:
         content = "".join([f"{m['role']}:{m['content']}" for m in messages])
@@ -192,72 +221,59 @@ class SessionManager:
     # ── Memory formatting ─────────────────────────────────────────────
 
     def _format_entry(self, summary: Dict) -> str:
-        """Turn a summary dict into a compact, readable memory entry."""
-        ts     = summary.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
-        count  = summary.get("message_count", 0)
+        ts = summary.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
+        count = summary.get("message_count", 0)
         bullets = summary.get("bullets", "- (no summary)")
-
-        lines = [
-            f"### {ts}  ({count} messages)",
-            bullets,
-            "",   # trailing blank line for clean separation
-        ]
+        lines = [f"### {ts}  ({count} messages)", bullets, ""]
         return "\n".join(lines)
 
     def _insert_entry(self, entry: str) -> None:
-        """Insert a new entry immediately after the RECENT SESSIONS header."""
-        text   = self.memory_file.read_text(encoding='utf-8')
+        text = self.memory_file.read_text(encoding="utf-8")
         marker = "## RECENT SESSIONS"
 
         if marker in text:
-            # Find the end of the marker line and the comment block below it
             idx = text.index(marker) + len(marker)
-            # Skip past any comment lines right after the marker
             rest = text[idx:]
             comment_end = 0
-            for line in rest.split('\n'):
+            for line in rest.split("\n"):
                 stripped = line.strip()
-                if stripped.startswith('<!--') or stripped.endswith('-->') or stripped == '':
+                if stripped.startswith("<!--") or stripped.endswith("-->") or stripped == "":
                     comment_end += len(line) + 1
                 else:
                     break
             insert_at = idx + comment_end
             text = text[:insert_at] + "\n" + entry + text[insert_at:]
         else:
-            # Fallback: just append
             text = text + "\n" + entry
 
-        self.memory_file.write_text(text, encoding='utf-8')
+        self.memory_file.write_text(text, encoding="utf-8")
 
     def _trim_old_entries(self) -> None:
-        """Keep only the most recent MAX_SESSIONS entries in RECENT SESSIONS."""
-        text   = self.memory_file.read_text(encoding='utf-8')
+        text = self.memory_file.read_text(encoding="utf-8")
         marker = "## RECENT SESSIONS"
 
         if marker not in text:
             return
 
-        split_idx    = text.index(marker)
-        header_part  = text[:split_idx + len(marker)]
+        split_idx = text.index(marker)
+        header_part = text[: split_idx + len(marker)]
         sessions_part = text[split_idx + len(marker):]
 
-        # Each entry starts with "### "
-        entries = re.split(r'(?=^### )', sessions_part, flags=re.MULTILINE)
+        entries = re.split(r"(?=^### )", sessions_part, flags=re.MULTILINE)
 
-        # First element may be the comment block — preserve it
         preamble = ""
         real_entries = []
         for e in entries:
-            if e.strip().startswith('###'):
+            if e.strip().startswith("###"):
                 real_entries.append(e)
             else:
                 preamble += e
 
         if len(real_entries) > MAX_SESSIONS:
-            real_entries = real_entries[:MAX_SESSIONS]  # newest first
+            real_entries = real_entries[:MAX_SESSIONS]
 
         trimmed = header_part + preamble + "".join(real_entries)
-        self.memory_file.write_text(trimmed, encoding='utf-8')
+        self.memory_file.write_text(trimmed, encoding="utf-8")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -268,3 +284,12 @@ def _iso(value) -> str:
     if isinstance(value, str):
         return value
     return datetime.now().isoformat()
+
+
+def _session_preview(messages: List[Dict]) -> str:
+    """First user message, truncated, as a display title."""
+    for m in messages:
+        if m.get("role") == "user":
+            text = m.get("content", "").strip()
+            return text[:40] + "…" if len(text) > 40 else text
+    return "Session"

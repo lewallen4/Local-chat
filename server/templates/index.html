@@ -10,7 +10,47 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="app-shell">
+
+    <!-- ── ID Gate (shown before chat) ─────────────────────────── -->
+    <div class="id-gate" id="id-gate">
+        <div class="id-gate-card">
+            <div class="id-gate-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                          stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h1 class="id-gate-title">Local Chat</h1>
+            <p class="id-gate-sub">Enter your user ID to access your workspace.</p>
+
+            <div class="id-input-row">
+                <input
+                    type="text"
+                    id="user-id-input"
+                    class="id-input"
+                    placeholder="user-id"
+                    maxlength="32"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                />
+                <button id="id-submit" class="id-submit-btn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2.2"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div id="id-feedback" class="id-feedback"></div>
+
+            <p class="id-hint">2–32 characters · letters, numbers, <span class="mono">-</span> and <span class="mono">_</span></p>
+        </div>
+    </div>
+
+    <!-- ── Main App (hidden until ID confirmed) ─────────────────── -->
+    <div class="app-shell hidden" id="app-shell">
 
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
@@ -18,11 +58,12 @@
                 <div class="brand">
                     <div class="brand-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                                  stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </div>
                     <span class="brand-name">Local Chat</span>
-                    <span class="brand-tag">LOCAL</span>
+                    <span class="brand-tag" id="user-badge">—</span>
                 </div>
                 <button id="new-chat" class="btn-new-chat" title="New session (Ctrl+N)">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -32,11 +73,11 @@
                 </button>
             </div>
 
-            <!-- Session list (main body of sidebar) -->
             <div class="sidebar-section">
                 <div class="section-label">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                     Sessions
                 </div>
@@ -45,7 +86,6 @@
                 </div>
             </div>
 
-            <!-- Memory bank — collapsible, at the bottom -->
             <div class="memory-panel" id="memory-panel">
                 <button class="memory-toggle" id="memory-toggle" title="Toggle memory bank">
                     <div class="memory-toggle-left">
@@ -56,7 +96,8 @@
                         <span>Memory Bank</span>
                     </div>
                     <svg class="chevron" width="12" height="12" viewBox="0 0 24 24" fill="none">
-                        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2"
+                              stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </button>
                 <div class="memory-body" id="memory-body">
@@ -66,7 +107,6 @@
                 </div>
             </div>
 
-            <!-- Status footer -->
             <div class="sidebar-footer">
                 <div class="status-row">
                     <span class="status-dot" id="status-dot"></span>
@@ -74,6 +114,11 @@
                 </div>
                 <div class="meta-row"><span id="session-id-display" class="mono-text">—</span></div>
                 <div class="meta-row"><span id="message-count" class="mono-text">0 exchanges</span></div>
+                <div class="meta-row">
+                    <button id="switch-user-btn" class="switch-user-btn" title="Switch user">
+                        ⇄ Switch user
+                    </button>
+                </div>
             </div>
         </aside>
 
@@ -81,7 +126,9 @@
         <main class="main-chat">
             <div class="chat-header">
                 <button class="icon-btn" id="sidebar-toggle" title="Toggle sidebar (Ctrl+B)">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
                 </button>
                 <div class="chat-title" id="chat-title">New Session</div>
                 <div class="header-actions">
@@ -92,7 +139,8 @@
                     <button class="icon-btn" id="theme-toggle" title="Switch to light mode">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                             <circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2"/>
-                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            <path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                                  stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                         </svg>
                     </button>
                 </div>
@@ -102,11 +150,12 @@
                 <div class="welcome-screen">
                     <div class="welcome-icon">
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </div>
-                    <h2>Local Chat is ready.</h2>
-                    <p>Your fully local AI assistant.</p>
+                    <h2 id="welcome-heading">Local Chat is ready.</h2>
+                    <p id="welcome-sub">Your fully local AI assistant.</p>
                     <div class="welcome-hints">
                         <span class="hint">↵ Send</span>
                         <span class="hint">⇧ ↵ New line</span>
@@ -120,12 +169,14 @@
                     <textarea id="user-input" placeholder="Message Local Chat..." rows="1" disabled></textarea>
                     <button id="send-button" disabled title="Send message">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor"
+                                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </button>
                     <button id="stop-button" class="stop-btn hidden" title="Stop generation">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2" fill="currentColor"/>
+                            <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor"
+                                  stroke-width="2" fill="currentColor"/>
                         </svg>
                     </button>
                 </div>

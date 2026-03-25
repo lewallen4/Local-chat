@@ -1,14 +1,23 @@
-/* Haven Local AI — Frontend Script */
+/* Local Chat — Frontend Script */
 
 // ── State ──────────────────────────────────────────────────────────
+let currentUserId    = null;
 let currentSessionId = null;
 let isGenerating     = false;
 let exchangeCount    = 0;
-let activeReader     = null;   // holds the stream reader so we can cancel it
+let activeReader     = null;
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
+// ID gate
+const idGate        = $('id-gate');
+const appShell      = $('app-shell');
+const userIdInput   = $('user-id-input');
+const idSubmit      = $('id-submit');
+const idFeedback    = $('id-feedback');
+
+// App
 const chatMessages      = $('chat-messages');
 const userInput         = $('user-input');
 const sendButton        = $('send-button');
@@ -27,18 +36,22 @@ const sidebar           = document.querySelector('.sidebar');
 const sessionList       = $('session-list');
 const memoryToggle      = $('memory-toggle');
 const memoryPanel       = $('memory-panel');
+const userBadge         = $('user-badge');
+const switchUserBtn     = $('switch-user-btn');
+const welcomeHeading    = $('welcome-heading');
+const welcomeSub        = $('welcome-sub');
 
-// ── Theme ───────────────────────────────────────────────────────────
+// ── Theme ────────────────────────────────────────────────────────────
 function initTheme() {
-    const saved = localStorage.getItem('haven-theme') || 'dark';
+    const saved = localStorage.getItem('localchat-theme') || 'dark';
     applyTheme(saved);
 }
 
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('haven-theme', theme);
+    localStorage.setItem('localchat-theme', theme);
     if (themeToggle) {
-        themeToggle.title   = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+        themeToggle.title     = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
         themeToggle.innerHTML = theme === 'dark' ? sunIcon() : moonIcon();
     }
 }
@@ -61,25 +74,126 @@ function moonIcon() {
     </svg>`;
 }
 
-// ── Init ───────────────────────────────────────────────────────────
-async function init() {
-    initTheme();
-    setupEventListeners();
-    setStatus('loading', 'Connecting...');
-    await loadMemory();
-    await startSession();
+// ── ID Gate ──────────────────────────────────────────────────────────
+function initIdGate() {
+    // Try restoring from sessionStorage (survives page refresh, not new tab)
+    const saved = sessionStorage.getItem('localchat-user-id');
+    if (saved) {
+        enterApp(saved, false);
+        return;
+    }
+
+    idGate.classList.remove('hidden');
+    appShell.classList.add('hidden');
+    userIdInput.focus();
+
+    idSubmit.addEventListener('click', submitUserId);
+    userIdInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitUserId();
+    });
 }
 
-// ── Status helpers ──────────────────────────────────────────────────
+async function submitUserId() {
+    const raw = userIdInput.value.trim();
+    if (!raw) return;
+
+    // Basic client-side validation
+    if (!/^[a-zA-Z0-9_\-]{2,32}$/.test(raw)) {
+        showIdFeedback('error', 'ID must be 2–32 characters: letters, numbers, - or _');
+        return;
+    }
+
+    idSubmit.disabled = true;
+    showIdFeedback('loading', 'Checking workspace…');
+
+    try {
+        const res  = await fetch(`/api/user/${encodeURIComponent(raw)}/check`);
+        const data = await res.json();
+
+        if (!res.ok) {
+            showIdFeedback('error', data.detail || 'Server error');
+            idSubmit.disabled = false;
+            return;
+        }
+
+        const returning = data.returning;
+        showIdFeedback('ok', returning
+            ? `Welcome back, ${raw}. Loading your workspace…`
+            : `Creating new workspace for ${raw}…`
+        );
+
+        await sleep(600);
+        enterApp(raw, returning, data.sessions || []);
+
+    } catch (err) {
+        showIdFeedback('error', 'Could not reach server. Is it running?');
+        idSubmit.disabled = false;
+    }
+}
+
+function showIdFeedback(type, text) {
+    idFeedback.textContent  = text;
+    idFeedback.className    = `id-feedback ${type}`;
+}
+
+async function enterApp(userId, returning, pastSessions = []) {
+    currentUserId = userId;
+    sessionStorage.setItem('localchat-user-id', userId);
+
+    // Swap screens
+    idGate.classList.add('hidden');
+    appShell.classList.remove('hidden');
+
+    // Update UI chrome
+    userBadge.textContent = userId.toUpperCase().slice(0, 8);
+
+    if (returning && pastSessions.length > 0) {
+        welcomeHeading.textContent = `Welcome back, ${userId}.`;
+        welcomeSub.textContent     = `${pastSessions.length} previous session${pastSessions.length !== 1 ? 's' : ''} loaded.`;
+        populatePastSessions(pastSessions);
+    } else {
+        welcomeHeading.textContent = `Hello, ${userId}.`;
+        welcomeSub.textContent     = 'Your local workspace is ready.';
+    }
+
+    initTheme();
+    setStatus('loading', 'Connecting…');
+    await loadMemory();
+    await startSession();
+    setupEventListeners();
+}
+
+function switchUser() {
+    // End current session gracefully, then return to gate
+    if (currentSessionId) {
+        navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
+        currentSessionId = null;
+    }
+    currentUserId = null;
+    sessionStorage.removeItem('localchat-user-id');
+
+    // Reset gate UI
+    idFeedback.textContent  = '';
+    idFeedback.className    = 'id-feedback';
+    userIdInput.value       = '';
+    idSubmit.disabled       = false;
+
+    appShell.classList.add('hidden');
+    idGate.classList.remove('hidden');
+    userIdInput.focus();
+}
+
+// ── Status helpers ────────────────────────────────────────────────────
 function setStatus(state, label) {
-    statusDot.className    = 'status-dot ' + state;
+    statusDot.className     = 'status-dot ' + state;
     statusLabel.textContent = label;
 }
 
-// ── Memory ─────────────────────────────────────────────────────────
+// ── Memory ────────────────────────────────────────────────────────────
 async function loadMemory() {
+    if (!currentUserId) return;
     try {
-        const res  = await fetch('/api/memory');
+        const res  = await fetch(`/api/memory?user_id=${encodeURIComponent(currentUserId)}`);
         const data = await res.json();
         const text = (data.memory || '').trim();
         memoryPreview.textContent = text
@@ -90,13 +204,16 @@ async function loadMemory() {
     }
 }
 
-// ── Session ─────────────────────────────────────────────────────────
+// ── Session ───────────────────────────────────────────────────────────
 async function startSession() {
     try {
         const res  = await fetch('/api/chat/start', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ metadata: { timestamp: new Date().toISOString() } })
+            body:    JSON.stringify({
+                user_id:  currentUserId,
+                metadata: { timestamp: new Date().toISOString() },
+            }),
         });
         const data = await res.json();
 
@@ -123,7 +240,37 @@ async function endSession(sessionId) {
     catch { /* best-effort */ }
 }
 
-// ── Stop generation ─────────────────────────────────────────────────
+// ── Populate past sessions in sidebar ─────────────────────────────────
+function populatePastSessions(sessions) {
+    const empty = sessionList.querySelector('.session-empty');
+    if (empty) empty.remove();
+
+    sessions.forEach(s => {
+        const item = document.createElement('div');
+        item.className   = 'session-item';
+        item.dataset.sid = s.session_id;
+
+        const ts = s.ended_at
+            ? new Date(s.ended_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+            : '—';
+
+        item.innerHTML = `
+            <div class="session-item-icon">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <div class="session-item-body">
+                <div class="session-item-title">${escHtml(s.preview || 'Session')}</div>
+                <div class="session-item-meta">${ts} · ${s.message_count} msgs</div>
+            </div>`;
+
+        sessionList.appendChild(item);
+    });
+}
+
+// ── Stop generation ───────────────────────────────────────────────────
 function stopGeneration() {
     if (activeReader) {
         activeReader.cancel();
@@ -131,14 +278,14 @@ function stopGeneration() {
     }
 }
 
-// ── Send message ────────────────────────────────────────────────────
+// ── Send message ──────────────────────────────────────────────────────
 async function sendMessage() {
     const text = userInput.value.trim();
     if (!text || isGenerating || !currentSessionId) return;
 
     userInput.value = '';
     autoResize();
-    isGenerating    = true;
+    isGenerating = true;
 
     sendButton.classList.add('hidden');
     stopButton.classList.remove('hidden');
@@ -149,7 +296,6 @@ async function sendMessage() {
 
     appendMessage('user', text);
 
-    // Add/update session in sidebar list on first message
     if (exchangeCount === 0) {
         addSessionToList(currentSessionId, text);
     }
@@ -157,9 +303,6 @@ async function sendMessage() {
     typingIndicator.classList.remove('hidden');
     scrollToBottom();
 
-    // Create assistant bubble.
-    // IMPORTANT: textNode is the ONLY child of contentEl during streaming.
-    // Cursor is a CSS ::after pseudo-element — no competing DOM sibling.
     const { row, contentEl, metaEl } = createAssistantBubble();
     chatMessages.appendChild(row);
 
@@ -174,7 +317,7 @@ async function sendMessage() {
         const res = await fetch(`/api/chat/${currentSessionId}`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ message: text })
+            body:    JSON.stringify({ message: text }),
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -183,7 +326,6 @@ async function sendMessage() {
         const decoder = new TextDecoder();
         activeReader  = reader;
 
-        // Buffer handles SSE lines that arrive split across network chunks
         let buffer = '';
 
         outer: while (true) {
@@ -191,32 +333,24 @@ async function sendMessage() {
             try {
                 ({ value, done } = await reader.read());
             } catch {
-                // Cancelled via stopGeneration()
                 stopped = true;
                 break;
             }
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });
-
-            // SSE events are separated by blank lines (\n\n)
             const events = buffer.split('\n\n');
-            buffer = events.pop(); // keep any incomplete trailing event
+            buffer = events.pop();
 
             for (const event of events) {
                 for (const line of event.split('\n')) {
                     if (!line.startsWith('data: ')) continue;
-
                     let payload;
-                    try {
-                        payload = JSON.parse(line.slice(6));
-                    } catch {
-                        continue; // skip malformed line, keep going
-                    }
+                    try { payload = JSON.parse(line.slice(6)); }
+                    catch { continue; }
 
                     if (payload.chunk !== undefined) {
                         fullResponse += payload.chunk;
-                        // Single text node update = horizontal text, no DOM thrash
                         textNode.textContent = fullResponse;
                         scrollToBottom();
                     } else if (payload.done) {
@@ -245,7 +379,6 @@ async function sendMessage() {
 
     } catch (err) {
         contentEl.classList.remove('streaming');
-        // Keep whatever streamed before the error
         if (!stopped) {
             const mark = document.createElement('span');
             mark.className   = 'stop-mark';
@@ -264,14 +397,14 @@ async function sendMessage() {
     }
 }
 
-// ── DOM helpers ─────────────────────────────────────────────────────
+// ── DOM helpers ───────────────────────────────────────────────────────
 function appendMessage(role, text) {
     const row = document.createElement('div');
     row.className = `message-row ${role}`;
 
     const avatar = document.createElement('div');
     avatar.className   = role === 'user' ? 'avatar user-avatar' : 'avatar ai-avatar';
-    avatar.textContent = role === 'user' ? 'U' : 'AI';
+    avatar.textContent = role === 'user' ? (currentUserId ? currentUserId.slice(0,2).toUpperCase() : 'U') : 'AI';
 
     const bubble  = document.createElement('div');
     bubble.className = 'message-bubble';
@@ -338,34 +471,35 @@ function formatTime(d) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-// ── Auto-resize textarea ─────────────────────────────────────────────
+function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Auto-resize textarea ──────────────────────────────────────────────
 function autoResize() {
     userInput.style.height = 'auto';
     userInput.style.height = Math.min(userInput.scrollHeight, 160) + 'px';
 }
 
-// ── Sidebar toggle ───────────────────────────────────────────────────
+// ── Sidebar toggle ────────────────────────────────────────────────────
 function toggleSidebar() {
     sidebar.classList.toggle('collapsed');
 }
 
-// ── Session list ─────────────────────────────────────────────────────
-const sessionHistory = []; // [{id, title, time, exchanges}]
-
+// ── Session list ──────────────────────────────────────────────────────
 function addSessionToList(sessionId, firstMessage) {
-    // Remove "no sessions" placeholder
     const empty = sessionList.querySelector('.session-empty');
     if (empty) empty.remove();
 
-    // Mark all others inactive
     sessionList.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
 
     const title = firstMessage
         ? (firstMessage.length > 28 ? firstMessage.slice(0, 28) + '…' : firstMessage)
         : 'New session';
-    const time  = formatTime(new Date());
 
-    const item  = document.createElement('div');
+    const item = document.createElement('div');
     item.className   = 'session-item active';
     item.dataset.sid = sessionId;
     item.innerHTML   = `
@@ -376,24 +510,11 @@ function addSessionToList(sessionId, firstMessage) {
             </svg>
         </div>
         <div class="session-item-body">
-            <div class="session-item-title">${title}</div>
-            <div class="session-item-meta">${time}</div>
+            <div class="session-item-title">${escHtml(title)}</div>
+            <div class="session-item-meta">${formatTime(new Date())}</div>
         </div>`;
 
-    // Prepend so newest is at top
     sessionList.insertBefore(item, sessionList.firstChild);
-    sessionHistory.unshift({ id: sessionId, title, time });
-}
-
-function updateActiveSession(sessionId, firstMessage) {
-    const item = sessionList.querySelector(`[data-sid="${sessionId}"]`);
-    if (item) {
-        const titleEl = item.querySelector('.session-item-title');
-        if (titleEl && firstMessage) {
-            const t = firstMessage.length > 28 ? firstMessage.slice(0, 28) + '…' : firstMessage;
-            titleEl.textContent = t;
-        }
-    }
 }
 
 function markSessionInactive(sessionId) {
@@ -403,17 +524,17 @@ function markSessionInactive(sessionId) {
 
 // ── Memory toggle ─────────────────────────────────────────────────────
 function initMemoryToggle() {
-    // Collapsed by default — no class needed since CSS defaults to collapsed
     memoryToggle.addEventListener('click', () => {
         memoryPanel.classList.toggle('expanded');
     });
 }
 
-// ── Event listeners ──────────────────────────────────────────────────
+// ── Event listeners ───────────────────────────────────────────────────
 function setupEventListeners() {
     sendButton.addEventListener('click', sendMessage);
     stopButton.addEventListener('click', stopGeneration);
     themeToggle.addEventListener('click', toggleTheme);
+    switchUserBtn.addEventListener('click', switchUser);
 
     userInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -437,8 +558,8 @@ function setupEventListeners() {
                               stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                     </svg>
                 </div>
-                <h2>Local Chat is ready.</h2>
-                <p>Your fully local AI assistant. No cloud, no telemetry, no traces.</p>
+                <h2>New session started.</h2>
+                <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
                 <div class="welcome-hints">
                     <span class="hint">↵ Send</span>
                     <span class="hint">⇧ ↵ New line</span>
@@ -471,4 +592,7 @@ window.addEventListener('beforeunload', () => {
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    initIdGate();
+});

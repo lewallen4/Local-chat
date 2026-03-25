@@ -7,8 +7,3 @@ aiofiles==23.2.1
 llama-cpp-python==0.2.26
 sentencepiece==0.2.0
 protobuf==3.20.3
-
-# For model loading
-# For GGUF models (recommended for CPU):
-llama-cpp-python==0.2.26
-
