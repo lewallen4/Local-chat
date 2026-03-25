@@ -197,21 +197,22 @@ async function loadMemory() {
 }
 
 // ── Session lifecycle ─────────────────────────────────────────────────
-async function startSession() {
+async function startSession(priorMessages = []) {
     isViewingHistory = false;
     try {
         const res  = await fetch('/api/chat/start', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify({
-                user_id:  currentUserId,
-                metadata: { timestamp: new Date().toISOString() },
+                user_id:       currentUserId,
+                prior_messages: priorMessages,
+                metadata:      { timestamp: new Date().toISOString() },
             }),
         });
         const data = await res.json();
 
         currentSessionId = data.session_id;
-        exchangeCount    = 0;
+        // Don't reset exchangeCount here — caller sets it after seeding history
 
         sessionIdDisplay.textContent = currentSessionId.slice(0, 8) + '…';
         updateCount();
@@ -243,7 +244,6 @@ async function switchToNewSession() {
     markAllSessionsInactive();
     await endCurrentSession();
     exchangeCount = 0;
-
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon">
@@ -306,9 +306,9 @@ async function loadPastSession(sessionId, title) {
         appendSystemMsg('— continuing session —');
         scrollToBottom();
 
-        // Start a fresh live session — memory already has the old session
-        // summary so the model has full context automatically
-        await startSession();
+        // Seed the new live session with the full prior message history
+        // so the model can answer questions about what was said before
+        await startSession(messages);
 
         exchangeCount = messages.filter(m => m.role === 'user').length;
         updateCount();
