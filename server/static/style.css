@@ -1199,3 +1199,34 @@ body {
 [data-theme="light"] .id-gate-card {
     box-shadow: 0 24px 64px rgba(0,0,0,0.12), 0 0 0 1px var(--border-subtle);
 }
+
+/* ── Continue session button ─────────────────────────────────── */
+.continue-session-btn {
+    display: block;
+    margin: 16px auto;
+    padding: 10px 24px;
+    background: transparent;
+    border: 1px solid var(--border-accent);
+    border-radius: var(--radius-md);
+    color: var(--blue-bright);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+    letter-spacing: 0.04em;
+}
+
+.continue-session-btn:hover {
+    background: rgba(46, 125, 209, 0.12);
+    box-shadow: 0 0 16px rgba(46, 125, 209, 0.2);
+    transform: translateY(-1px);
+}
+
+.continue-session-btn:active {
+    transform: translateY(0);
+}
+
+/* Past session items are clickable */
+.session-item {
+    cursor: pointer;
+}
