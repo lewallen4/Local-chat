@@ -266,8 +266,71 @@ function populatePastSessions(sessions) {
                 <div class="session-item-meta">${ts} · ${s.message_count} msgs</div>
             </div>`;
 
+        item.addEventListener('click', () => loadPastSession(s.session_id, s.preview));
         sessionList.appendChild(item);
     });
+}
+
+// ── Load a past session into the chat window ──────────────────────────
+async function loadPastSession(sessionId, title) {
+    if (isGenerating) return;
+
+    // End current live session cleanly
+    if (currentSessionId) {
+        markSessionInactive(currentSessionId);
+        await endSession(currentSessionId);
+        currentSessionId = null;
+    }
+
+    // Mark selected item active
+    sessionList.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+    const clicked = sessionList.querySelector(`[data-sid="${sessionId}"]`);
+    if (clicked) clicked.classList.add('active');
+
+    chatMessages.innerHTML = '<div class="system-msg">Loading session…</div>';
+    chatTitle.textContent  = escHtml(title || sessionId.slice(0, 8));
+
+    try {
+        const res = await fetch(`/api/sessions/${sessionId}/history`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const messages = await res.json();
+
+        chatMessages.innerHTML = '';
+
+        if (!messages.length) {
+            chatMessages.innerHTML = '<div class="system-msg">No messages in this session.</div>';
+        } else {
+            messages.forEach(m => appendMessage(m.role, m.content));
+        }
+
+        const banner = document.createElement('div');
+        banner.className   = 'system-msg';
+        banner.textContent = '— end of session history —';
+        chatMessages.appendChild(banner);
+
+        const continueBtn = document.createElement('button');
+        continueBtn.className   = 'continue-session-btn';
+        continueBtn.textContent = '+ Continue from here';
+        continueBtn.addEventListener('click', async () => {
+            continueBtn.remove();
+            banner.remove();
+            exchangeCount = 0;
+            sessionIdDisplay.textContent = '—';
+            updateCount();
+            userInput.disabled  = true;
+            sendButton.disabled = true;
+            await startSession();
+        });
+        chatMessages.appendChild(continueBtn);
+        scrollToBottom();
+
+        sessionIdDisplay.textContent = sessionId.slice(0, 8) + '…';
+        exchangeCount = messages.filter(m => m.role === 'user').length;
+        updateCount();
+
+    } catch (err) {
+        chatMessages.innerHTML = `<div class="system-msg">⚠ Could not load session: ${escHtml(err.message)}</div>`;
+    }
 }
 
 // ── Stop generation ───────────────────────────────────────────────────
