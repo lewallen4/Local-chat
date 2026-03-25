@@ -42,7 +42,7 @@ SESSIONS_DIR = Path("sessions")   # legacy / WAL root — WAL files still go her
 SESSIONS_DIR.mkdir(exist_ok=True)
 
 # ── User ID validation ─────────────────────────────────────────────
-USER_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{2,32}$")
+USER_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{5,5}$")
 
 def validate_user_id(user_id: str) -> bool:
     """Alphanumeric + underscore/hyphen, 2–32 chars. Keeps filesystem paths safe."""
@@ -213,7 +213,7 @@ async def start_chat(request: Request):
     if not validate_user_id(user_id):
         raise HTTPException(
             status_code=400,
-            detail="Invalid user ID. Use 2–32 alphanumeric characters, hyphens, or underscores."
+            detail="Invalid user ID. Must be exactly 5 alphanumeric characters, hyphens, or underscores."
         )
 
     # Provision workspace (no-op if already exists)
