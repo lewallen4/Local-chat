@@ -271,53 +271,51 @@ async function switchToNewSession() {
     await startSession();
 }
 
-// ── Load a past session (read-only view) ──────────────────────────────
+// ── Load a past session and continue it live ─────────────────────────
 async function loadPastSession(sessionId, title) {
-    if (isGenerating) stopGeneration();
+    // Block during generation — must wait for response to finish first
+    if (isGenerating) return;
 
+    // Don't reload the session already active
+    if (currentSessionId === sessionId) return;
+
+    // End whatever live session is currently open
     markAllSessionsInactive();
     await endCurrentSession();
 
-    // Mark clicked item active
-    const item = sessionList.querySelector(`[data-sid="${sessionId}"]`);
+    // Highlight selected item in sidebar
+    const item = sessionList.querySelector('[data-sid="' + sessionId + '"]');
     if (item) item.classList.add('active');
 
-    isViewingHistory = true;
+    // Disable input while fetching history
+    isViewingHistory = false;
     userInput.disabled  = true;
     sendButton.disabled = true;
-
     chatMessages.innerHTML = '<div class="system-msg">Loading session…</div>';
     chatTitle.textContent  = escHtml(title || sessionId.slice(0, 8));
-    sessionIdDisplay.textContent = sessionId.slice(0, 8) + '…';
 
     try {
-        const res = await fetch(`/api/sessions/${sessionId}/history`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const res = await fetch('/api/sessions/' + sessionId + '/history');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
         const messages = await res.json();
 
         chatMessages.innerHTML = '';
-
-        if (!messages.length) {
-            appendSystemMsg('No messages in this session.');
-        } else {
+        if (messages.length) {
             messages.forEach(m => appendMessage(m.role, m.content));
         }
-
-        appendSystemMsg('— end of session history —');
-
-        // Continue button
-        const continueBtn = document.createElement('button');
-        continueBtn.className   = 'continue-session-btn';
-        continueBtn.textContent = '+ Continue from here';
-        continueBtn.addEventListener('click', () => switchToNewSession());
-        chatMessages.appendChild(continueBtn);
+        appendSystemMsg('— continuing session —');
         scrollToBottom();
+
+        // Start a fresh live session — memory already has the old session
+        // summary so the model has full context automatically
+        await startSession();
 
         exchangeCount = messages.filter(m => m.role === 'user').length;
         updateCount();
 
     } catch (err) {
-        chatMessages.innerHTML = `<div class="system-msg">⚠ Could not load session: ${escHtml(err.message)}</div>`;
+        chatMessages.innerHTML = '<div class="system-msg">⚠ Could not load session: ' + escHtml(err.message) + '</div>';
+        await startSession();
     }
 }
 
