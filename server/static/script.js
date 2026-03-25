@@ -273,7 +273,8 @@ function populatePastSessions(sessions) {
 
 // ── Load a past session into the chat window ──────────────────────────
 async function loadPastSession(sessionId, title) {
-    if (isGenerating) return;
+    // If generating, cancel it first then continue with the switch
+    if (isGenerating) stopGeneration();
 
     // End current live session cleanly
     if (currentSessionId) {
@@ -607,7 +608,7 @@ function setupEventListeners() {
     userInput.addEventListener('input', autoResize);
 
     newChatBtn.addEventListener('click', async () => {
-        if (isGenerating) { stopGeneration(); return; }
+        if (isGenerating) stopGeneration();
         markSessionInactive(currentSessionId);
         await endSession(currentSessionId);
         currentSessionId = null;
