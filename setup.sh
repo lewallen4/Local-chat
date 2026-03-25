@@ -84,7 +84,7 @@ install_deps() {
     PIP="$VENV_DIR/bin/pip"
     PYTHON="$VENV_DIR/bin/python"
 
-    "$PIP" install fastapi "uvicorn[standard]" jinja2 python-multipart httpx aiofiles --quiet
+    "$PIP" install --upgrade fastapi "uvicorn[standard]" "jinja2>=3.1.4" "python-multipart>=0.0.9" "httpx>=0.27.0" aiofiles --quiet
     ok "FastAPI stack installed"
 
     # Only build llama-cpp-python if it isn't already importable —
