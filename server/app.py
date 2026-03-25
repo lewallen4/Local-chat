@@ -222,24 +222,39 @@ async def start_chat(request: Request):
 
     session_id = str(uuid.uuid4())
 
+    # Optional: seed session with messages from a prior session being continued.
+    # Strip timestamps so they don't confuse the model, keep role + content only.
+    prior = data.get("prior_messages", [])
+    seeded = []
+    for m in prior:
+        if m.get("role") in ("user", "assistant") and m.get("content", "").strip():
+            seeded.append({
+                "role":      m["role"],
+                "content":   m["content"].strip(),
+                "timestamp": m.get("timestamp", datetime.now().isoformat()),
+            })
+
     active_sessions[session_id] = {
         "id": session_id,
         "user_id": user_id,
         "session_manager": sm,
-        "messages": [],
+        "messages": seeded,
         "context_memory": global_memory,
         "last_active": datetime.now(),
         "created_at": datetime.now(),
         "metadata": data.get("metadata", {}),
     }
 
-    wal_path(session_id).touch()
+    # Write seeded messages to WAL so crash recovery captures them
+    for m in seeded:
+        wal_append(session_id, m)
 
     return JSONResponse({
         "session_id": session_id,
         "user_id": user_id,
-        "returning": True,  # provision_user already printed the distinction
+        "returning": True,
         "memory_loaded": bool(global_memory),
+        "seeded_messages": len(seeded),
         "message": "Session started",
     })
 
