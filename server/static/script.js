@@ -95,8 +95,8 @@ async function submitUserId() {
     const raw = userIdInput.value.trim();
     if (!raw) return;
 
-    if (!/^[a-zA-Z0-9_\-]{2,32}$/.test(raw)) {
-        showIdFeedback('error', 'ID must be 2–32 characters: letters, numbers, - or _');
+    if (!/^[a-zA-Z0-9_\-]{5,5}$/.test(raw)) {
+        showIdFeedback('error', 'ID must be exactly 5 characters: letters, numbers, - or _');
         return;
     }
 
