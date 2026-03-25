@@ -6,18 +6,17 @@ let currentSessionId = null;
 let isGenerating     = false;
 let exchangeCount    = 0;
 let activeReader     = null;
+let isViewingHistory = false;   // true when showing a past session read-only
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-// ID gate
 const idGate        = $('id-gate');
 const appShell      = $('app-shell');
 const userIdInput   = $('user-id-input');
 const idSubmit      = $('id-submit');
 const idFeedback    = $('id-feedback');
 
-// App
 const chatMessages      = $('chat-messages');
 const userInput         = $('user-input');
 const sendButton        = $('send-button');
@@ -76,7 +75,6 @@ function moonIcon() {
 
 // ── ID Gate ──────────────────────────────────────────────────────────
 function initIdGate() {
-    // Try restoring from sessionStorage (survives page refresh, not new tab)
     const saved = sessionStorage.getItem('localchat-user-id');
     if (saved) {
         enterApp(saved, false);
@@ -97,7 +95,6 @@ async function submitUserId() {
     const raw = userIdInput.value.trim();
     if (!raw) return;
 
-    // Basic client-side validation
     if (!/^[a-zA-Z0-9_\-]{2,32}$/.test(raw)) {
         showIdFeedback('error', 'ID must be 2–32 characters: letters, numbers, - or _');
         return;
@@ -116,14 +113,13 @@ async function submitUserId() {
             return;
         }
 
-        const returning = data.returning;
-        showIdFeedback('ok', returning
+        showIdFeedback('ok', data.returning
             ? `Welcome back, ${raw}. Loading your workspace…`
             : `Creating new workspace for ${raw}…`
         );
 
         await sleep(600);
-        enterApp(raw, returning, data.sessions || []);
+        enterApp(raw, data.returning, data.sessions || []);
 
     } catch (err) {
         showIdFeedback('error', 'Could not reach server. Is it running?');
@@ -132,19 +128,17 @@ async function submitUserId() {
 }
 
 function showIdFeedback(type, text) {
-    idFeedback.textContent  = text;
-    idFeedback.className    = `id-feedback ${type}`;
+    idFeedback.textContent = text;
+    idFeedback.className   = `id-feedback ${type}`;
 }
 
 async function enterApp(userId, returning, pastSessions = []) {
     currentUserId = userId;
     sessionStorage.setItem('localchat-user-id', userId);
 
-    // Swap screens
     idGate.classList.add('hidden');
     appShell.classList.remove('hidden');
 
-    // Update UI chrome
     userBadge.textContent = userId.toUpperCase().slice(0, 8);
 
     if (returning && pastSessions.length > 0) {
@@ -157,14 +151,13 @@ async function enterApp(userId, returning, pastSessions = []) {
     }
 
     initTheme();
+    setupEventListeners();
     setStatus('loading', 'Connecting…');
     await loadMemory();
     await startSession();
-    setupEventListeners();
 }
 
 function switchUser() {
-    // End current session gracefully, then return to gate
     if (currentSessionId) {
         navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
         currentSessionId = null;
@@ -172,18 +165,17 @@ function switchUser() {
     currentUserId = null;
     sessionStorage.removeItem('localchat-user-id');
 
-    // Reset gate UI
-    idFeedback.textContent  = '';
-    idFeedback.className    = 'id-feedback';
-    userIdInput.value       = '';
-    idSubmit.disabled       = false;
+    idFeedback.textContent = '';
+    idFeedback.className   = 'id-feedback';
+    userIdInput.value      = '';
+    idSubmit.disabled      = false;
 
     appShell.classList.add('hidden');
     idGate.classList.remove('hidden');
     userIdInput.focus();
 }
 
-// ── Status helpers ────────────────────────────────────────────────────
+// ── Status ────────────────────────────────────────────────────────────
 function setStatus(state, label) {
     statusDot.className     = 'status-dot ' + state;
     statusLabel.textContent = label;
@@ -204,8 +196,9 @@ async function loadMemory() {
     }
 }
 
-// ── Session ───────────────────────────────────────────────────────────
+// ── Session lifecycle ─────────────────────────────────────────────────
 async function startSession() {
+    isViewingHistory = false;
     try {
         const res  = await fetch('/api/chat/start', {
             method:  'POST',
@@ -234,62 +227,68 @@ async function startSession() {
     }
 }
 
-async function endSession(sessionId) {
-    if (!sessionId) return;
-    try { await fetch(`/api/chat/${sessionId}/end`, { method: 'POST' }); }
-    catch { /* best-effort */ }
+async function endCurrentSession() {
+    if (!currentSessionId) return;
+    const sid = currentSessionId;
+    currentSessionId = null;
+    try {
+        await fetch(`/api/chat/${sid}/end`, { method: 'POST' });
+    } catch { /* best-effort */ }
 }
 
-// ── Populate past sessions in sidebar ─────────────────────────────────
-function populatePastSessions(sessions) {
-    const empty = sessionList.querySelector('.session-empty');
-    if (empty) empty.remove();
-
-    sessions.forEach(s => {
-        const item = document.createElement('div');
-        item.className   = 'session-item';
-        item.dataset.sid = s.session_id;
-
-        const ts = s.ended_at
-            ? new Date(s.ended_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
-            : '—';
-
-        item.innerHTML = `
-            <div class="session-item-icon">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
-                          stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-            </div>
-            <div class="session-item-body">
-                <div class="session-item-title">${escHtml(s.preview || 'Session')}</div>
-                <div class="session-item-meta">${ts} · ${s.message_count} msgs</div>
-            </div>`;
-
-        item.addEventListener('click', () => loadPastSession(s.session_id, s.preview));
-        sessionList.appendChild(item);
-    });
-}
-
-// ── Load a past session into the chat window ──────────────────────────
-async function loadPastSession(sessionId, title) {
-    // If generating, cancel it first then continue with the switch
+// ── Switch to a new blank session ─────────────────────────────────────
+async function switchToNewSession() {
     if (isGenerating) stopGeneration();
 
-    // End current live session cleanly
-    if (currentSessionId) {
-        markSessionInactive(currentSessionId);
-        await endSession(currentSessionId);
-        currentSessionId = null;
-    }
+    markAllSessionsInactive();
+    await endCurrentSession();
+    exchangeCount = 0;
 
-    // Mark selected item active
-    sessionList.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
-    const clicked = sessionList.querySelector(`[data-sid="${sessionId}"]`);
-    if (clicked) clicked.classList.add('active');
+    chatMessages.innerHTML = `
+        <div class="welcome-screen">
+            <div class="welcome-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h2>New session started.</h2>
+            <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
+            <div class="welcome-hints">
+                <span class="hint">↵ Send</span>
+                <span class="hint">⇧ ↵ New line</span>
+                <span class="hint">Esc Clear</span>
+            </div>
+        </div>`;
+
+    chatTitle.textContent        = 'New Session';
+    sessionIdDisplay.textContent = '—';
+    updateCount();
+    userInput.disabled  = true;
+    sendButton.disabled = true;
+
+    await loadMemory();
+    await startSession();
+}
+
+// ── Load a past session (read-only view) ──────────────────────────────
+async function loadPastSession(sessionId, title) {
+    if (isGenerating) stopGeneration();
+
+    markAllSessionsInactive();
+    await endCurrentSession();
+
+    // Mark clicked item active
+    const item = sessionList.querySelector(`[data-sid="${sessionId}"]`);
+    if (item) item.classList.add('active');
+
+    isViewingHistory = true;
+    userInput.disabled  = true;
+    sendButton.disabled = true;
 
     chatMessages.innerHTML = '<div class="system-msg">Loading session…</div>';
     chatTitle.textContent  = escHtml(title || sessionId.slice(0, 8));
+    sessionIdDisplay.textContent = sessionId.slice(0, 8) + '…';
 
     try {
         const res = await fetch(`/api/sessions/${sessionId}/history`);
@@ -299,33 +298,21 @@ async function loadPastSession(sessionId, title) {
         chatMessages.innerHTML = '';
 
         if (!messages.length) {
-            chatMessages.innerHTML = '<div class="system-msg">No messages in this session.</div>';
+            appendSystemMsg('No messages in this session.');
         } else {
             messages.forEach(m => appendMessage(m.role, m.content));
         }
 
-        const banner = document.createElement('div');
-        banner.className   = 'system-msg';
-        banner.textContent = '— end of session history —';
-        chatMessages.appendChild(banner);
+        appendSystemMsg('— end of session history —');
 
+        // Continue button
         const continueBtn = document.createElement('button');
         continueBtn.className   = 'continue-session-btn';
         continueBtn.textContent = '+ Continue from here';
-        continueBtn.addEventListener('click', async () => {
-            continueBtn.remove();
-            banner.remove();
-            exchangeCount = 0;
-            sessionIdDisplay.textContent = '—';
-            updateCount();
-            userInput.disabled  = true;
-            sendButton.disabled = true;
-            await startSession();
-        });
+        continueBtn.addEventListener('click', () => switchToNewSession());
         chatMessages.appendChild(continueBtn);
         scrollToBottom();
 
-        sessionIdDisplay.textContent = sessionId.slice(0, 8) + '…';
         exchangeCount = messages.filter(m => m.role === 'user').length;
         updateCount();
 
@@ -541,30 +528,29 @@ function escHtml(str) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── Auto-resize textarea ──────────────────────────────────────────────
 function autoResize() {
     userInput.style.height = 'auto';
     userInput.style.height = Math.min(userInput.scrollHeight, 160) + 'px';
 }
 
-// ── Sidebar toggle ────────────────────────────────────────────────────
 function toggleSidebar() {
     sidebar.classList.toggle('collapsed');
 }
 
-// ── Session list ──────────────────────────────────────────────────────
-function addSessionToList(sessionId, firstMessage) {
-    const empty = sessionList.querySelector('.session-empty');
-    if (empty) empty.remove();
-
+// ── Session list helpers ──────────────────────────────────────────────
+function markAllSessionsInactive() {
     sessionList.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+}
 
-    const title = firstMessage
-        ? (firstMessage.length > 28 ? firstMessage.slice(0, 28) + '…' : firstMessage)
-        : 'New session';
+function markSessionInactive(sessionId) {
+    const item = sessionList.querySelector(`[data-sid="${sessionId}"]`);
+    if (item) item.classList.remove('active');
+}
 
+// Creates a session item and wires up its click handler
+function createSessionItem(sessionId, title, meta, isActive) {
     const item = document.createElement('div');
-    item.className   = 'session-item active';
+    item.className   = `session-item${isActive ? ' active' : ''}`;
     item.dataset.sid = sessionId;
     item.innerHTML   = `
         <div class="session-item-icon">
@@ -575,15 +561,42 @@ function addSessionToList(sessionId, firstMessage) {
         </div>
         <div class="session-item-body">
             <div class="session-item-title">${escHtml(title)}</div>
-            <div class="session-item-meta">${formatTime(new Date())}</div>
+            <div class="session-item-meta">${escHtml(meta)}</div>
         </div>`;
 
+    item.addEventListener('click', () => loadPastSession(sessionId, title));
+    return item;
+}
+
+// Called when a brand-new live session sends its first message
+function addSessionToList(sessionId, firstMessage) {
+    const empty = sessionList.querySelector('.session-empty');
+    if (empty) empty.remove();
+
+    markAllSessionsInactive();
+
+    const title = firstMessage
+        ? (firstMessage.length > 28 ? firstMessage.slice(0, 28) + '…' : firstMessage)
+        : 'New session';
+
+    const item = createSessionItem(sessionId, title, formatTime(new Date()), true);
     sessionList.insertBefore(item, sessionList.firstChild);
 }
 
-function markSessionInactive(sessionId) {
-    const item = sessionList.querySelector(`[data-sid="${sessionId}"]`);
-    if (item) item.classList.remove('active');
+// Called on login with the user's historical sessions
+function populatePastSessions(sessions) {
+    const empty = sessionList.querySelector('.session-empty');
+    if (empty) empty.remove();
+
+    sessions.forEach(s => {
+        const ts = s.ended_at
+            ? new Date(s.ended_at).toLocaleDateString([], { month: 'short', day: 'numeric' })
+            : '—';
+        const meta  = `${ts} · ${s.message_count} msgs`;
+        const title = s.preview || 'Session';
+        const item  = createSessionItem(s.session_id, title, meta, false);
+        sessionList.appendChild(item);
+    });
 }
 
 // ── Memory toggle ─────────────────────────────────────────────────────
@@ -606,46 +619,12 @@ function setupEventListeners() {
     });
 
     userInput.addEventListener('input', autoResize);
-
-    newChatBtn.addEventListener('click', async () => {
-        if (isGenerating) stopGeneration();
-        markSessionInactive(currentSessionId);
-        await endSession(currentSessionId);
-        currentSessionId = null;
-        exchangeCount    = 0;
-
-        chatMessages.innerHTML = `
-            <div class="welcome-screen">
-                <div class="welcome-icon">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </div>
-                <h2>New session started.</h2>
-                <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
-                <div class="welcome-hints">
-                    <span class="hint">↵ Send</span>
-                    <span class="hint">⇧ ↵ New line</span>
-                    <span class="hint">Esc Clear</span>
-                </div>
-            </div>`;
-
-        chatTitle.textContent        = 'New Session';
-        sessionIdDisplay.textContent = '—';
-        updateCount();
-        userInput.disabled  = true;
-        sendButton.disabled = true;
-
-        await loadMemory();
-        await startSession();
-    });
-
+    newChatBtn.addEventListener('click', switchToNewSession);
     sidebarToggle.addEventListener('click', toggleSidebar);
     initMemoryToggle();
 
     document.addEventListener('keydown', e => {
-        if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); newChatBtn.click(); }
+        if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); switchToNewSession(); }
         if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
     });
 }
