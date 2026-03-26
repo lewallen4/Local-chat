@@ -166,6 +166,19 @@ check_prereqs() {
             "cmake" \
             || warn "cmake not installed. llama-cpp-python will attempt a pre-built wheel instead."
     fi
+
+    # ── C++ compiler ──────────────────────────────────────────────
+    # build-essential doesn't always pull g++ on all Ubuntu variants.
+    # Check explicitly so llama-cpp-python source builds don't fail.
+    if command -v g++ >/dev/null 2>&1 || command -v c++ >/dev/null 2>&1; then
+        ok "C++ compiler found: $(g++ --version 2>/dev/null | head -1 || c++ --version | head -1)"
+    else
+        install_pkg "g++ C++ compiler (required to build llama-cpp-python)" \
+            "g++ build-essential" \
+            "gcc-c++ make" \
+            "gcc" \
+            || warn "C++ compiler not installed. llama-cpp-python source build will fail."
+    fi
 }
 
 # ── Virtual environment ────────────────────────────────────────────
