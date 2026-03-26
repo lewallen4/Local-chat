@@ -27,7 +27,7 @@ line() { echo -e "${DIM}──────────────────�
 sec()  { echo -e "\n  ${CYAN}${BOLD}$1${RESET}"; line; }
 row()  { echo -e "  ${BLUE}${BOLD}[$1]${RESET} ${BOLD}$2${RESET}  ${DIM}$3  —  $4${RESET}"; }
 
-# ── curl / wget detection ──────────────────────────────────────────
+# ── Downloader detection ───────────────────────────────────────────
 detect_downloader() {
     if command -v curl >/dev/null 2>&1; then
         DOWNLOADER="curl"
@@ -38,14 +38,112 @@ detect_downloader() {
     fi
 }
 
+# ── Get remote file size (bytes) ───────────────────────────────────
+get_remote_size() {
+    local URL="$1"
+    local BYTES=0
+    if [ "$DOWNLOADER" = "curl" ]; then
+        BYTES=$(curl -sI -L "$URL" | grep -i content-length | tail -1 | tr -d '\r' | awk '{print $2}')
+    else
+        BYTES=$(wget -q --spider --server-response "$URL" 2>&1 | grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+    fi
+    echo "${BYTES:-0}"
+}
+
+# ── Human-readable bytes ───────────────────────────────────────────
+human_bytes() {
+    local BYTES="$1"
+    if   [ "$BYTES" -ge 1073741824 ]; then awk "BEGIN{printf \"%.1f GB\", $BYTES/1073741824}"
+    elif [ "$BYTES" -ge 1048576 ];    then awk "BEGIN{printf \"%.1f MB\", $BYTES/1048576}"
+    elif [ "$BYTES" -ge 1024 ];       then awk "BEGIN{printf \"%.1f KB\", $BYTES/1024}"
+    else echo "${BYTES} B"
+    fi
+}
+
+# ── Pretty progress bar ────────────────────────────────────────────
+# Runs in the foreground, polling the growing output file every 0.5s
+# against the known total size. Cleans up cleanly on exit.
+draw_progress() {
+    local DEST="$1"
+    local TOTAL="$2"   # bytes
+    local WIDTH=38     # bar fill width in chars
+
+    # If we don't know the size, just show a spinner
+    if [ "$TOTAL" -eq 0 ]; then
+        local SPIN=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+        local I=0
+        while kill -0 "$DL_PID" 2>/dev/null; do
+            printf "\r  ${CYAN}${SPIN[$I]}${RESET}  Downloading...  ${DIM}(size unknown)${RESET}   "
+            I=$(( (I+1) % ${#SPIN[@]} ))
+            sleep 0.15
+        done
+        printf "\r%-60s\r" " "
+        return
+    fi
+
+    local TOTAL_HR
+    TOTAL_HR=$(human_bytes "$TOTAL")
+
+    while kill -0 "$DL_PID" 2>/dev/null; do
+        local CURRENT=0
+        [ -f "$DEST" ] && CURRENT=$(stat -c%s "$DEST" 2>/dev/null || stat -f%z "$DEST" 2>/dev/null || echo 0)
+        CURRENT="${CURRENT:-0}"
+
+        local PCT=0
+        [ "$TOTAL" -gt 0 ] && PCT=$(( CURRENT * 100 / TOTAL ))
+        [ "$PCT" -gt 100 ] && PCT=100
+
+        local FILLED=$(( PCT * WIDTH / 100 ))
+        local EMPTY=$(( WIDTH - FILLED ))
+
+        local BAR="${GREEN}"
+        for ((i=0; i<FILLED; i++)); do BAR="${BAR}█"; done
+        BAR="${BAR}${DIM}"
+        for ((i=0; i<EMPTY; i++)); do BAR="${BAR}░"; done
+        BAR="${BAR}${RESET}"
+
+        local CURRENT_HR
+        CURRENT_HR=$(human_bytes "$CURRENT")
+
+        printf "\r  ${BAR}  ${BOLD}%3d%%${RESET}  ${DIM}%s / %s${RESET}  " \
+            "$PCT" "$CURRENT_HR" "$TOTAL_HR"
+
+        sleep 0.5
+    done
+
+    # Final: show 100%
+    local FINAL_BAR="${GREEN}"
+    for ((i=0; i<WIDTH; i++)); do FINAL_BAR="${FINAL_BAR}█"; done
+    FINAL_BAR="${FINAL_BAR}${RESET}"
+    printf "\r  ${FINAL_BAR}  ${BOLD}100%%${RESET}  ${DIM}%s / %s${RESET}  \n" \
+        "$TOTAL_HR" "$TOTAL_HR"
+}
+
+# ── Download + progress ────────────────────────────────────────────
 do_download() {
     local URL="$1"
     local DEST="$2"
+
+    # Get file size for the progress bar
+    echo -e "  ${DIM}Retrieving file info...${RESET}"
+    local TOTAL
+    TOTAL=$(get_remote_size "$URL")
+    gap
+
+    # Start the download silently in the background
     if [ "$DOWNLOADER" = "curl" ]; then
-        curl -L --progress-bar -o "$DEST" "$URL"
+        curl -sS -L -o "$DEST" "$URL" &
     else
-        wget -q --show-progress -O "$DEST" "$URL"
+        wget -q -O "$DEST" "$URL" &
     fi
+    DL_PID=$!
+
+    # Draw progress bar in the foreground until download finishes
+    draw_progress "$DEST" "$TOTAL"
+
+    # Wait for download to complete and capture exit code
+    wait "$DL_PID"
+    return $?
 }
 
 # ── Model registry ─────────────────────────────────────────────────
@@ -88,7 +186,7 @@ MODEL_OUTPUT=(
     [10]="model.gguf" [11]="model.gguf" [12]="model.gguf"
 )
 
-# ── Detect downloader early ────────────────────────────────────────
+# ── Detect downloader ──────────────────────────────────────────────
 detect_downloader
 
 # ── Banner ─────────────────────────────────────────────────────────
@@ -166,7 +264,7 @@ read -rp "  Proceed? (y/N): " CONFIRM
 # ── Download ───────────────────────────────────────────────────────
 gap
 mkdir -p "$MODELS_DIR"
-echo -e "  ${CYAN}${BOLD}Downloading $LABEL...${RESET}"
+echo -e "  ${CYAN}${BOLD}$LABEL${RESET}"
 gap
 
 if do_download "$URL" "$DEST"; then
@@ -182,6 +280,8 @@ if do_download "$URL" "$DEST"; then
     fi
 else
     gap
+    # Clean up partial file on failure
+    [ -f "$DEST" ] && rm -f "$DEST" && warn "Partial file removed."
     die "Download failed. Check your connection and try again."
 fi
 
