@@ -84,7 +84,7 @@ ok "Virtualenv found at $VENV_DIR"
 # Model file
 MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
 if [ ! -f "$MODEL_PATH" ]; then
-    FALLBACK=$(find "$MODELS_DIR" -name "*.gguf" -o -name "*.model" 2>/dev/null | head -1)
+    FALLBACK=$(find "$MODELS_DIR" -name "*.gguf" -o -name "*.model" 2>/dev/null | sort | head -1)
     if [ -n "$FALLBACK" ]; then
         MODEL_FILE="$(basename "$FALLBACK")"
         MODEL_PATH="$FALLBACK"
