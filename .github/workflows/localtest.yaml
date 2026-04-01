@@ -1,4 +1,4 @@
-name: script version test
+name: Latest Local Test
 
 on:
   workflow_dispatch:  # Manual trigger only
@@ -6,7 +6,7 @@ on:
 jobs:
   serve:
     runs-on: ubuntu-latest
-    timeout-minutes: 350  # GitHub Actions max is 360 — leave headroom
+    timeout-minutes: 30  # GitHub Actions max is 360 — leave headroom
 
     steps:
     - name: Checkout repository
