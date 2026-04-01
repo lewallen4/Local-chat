@@ -149,20 +149,35 @@ do_download() {
 # ── Model registry ─────────────────────────────────────────────────
 declare -A MODEL_LABEL MODEL_SIZE MODEL_RAM MODEL_URL MODEL_OUTPUT
 
-MODEL_LABEL=( [1]="Llama 3.2  1B"           [2]="Llama 3.2  3B"
-              [3]="Llama 3.1  8B"           [4]="Llama 3.3  70B"
-              [5]="Llama 4 Scout  (pt 1/2)" [6]="Llama 4 Scout  (pt 2/2)"
-              [7]="Mistral  7B"             [8]="Mistral Nemo  12B"
-              [9]="Mistral Small  22B"      [10]="IBM Granite  3B"
-              [11]="IBM Granite  8B"        [12]="IBM Granite  34B" )
+MODEL_LABEL=(
+    [1]="Llama 3.2  1B"             [2]="Llama 3.2  3B"
+    [3]="Llama 3.1  8B"             [4]="Llama 3.3  70B"
+    [5]="Llama 4 Scout  (pt 1/2)"   [6]="Llama 4 Scout  (pt 2/2)"
+    [7]="Mistral  7B"               [8]="Mistral Nemo  12B"
+    [9]="Mistral Small  22B"
+    [10]="IBM Granite 3  3B"        [11]="IBM Granite 3  8B"
+    [12]="IBM Granite 3  34B"
+    [13]="IBM Granite 4  1B"        [14]="IBM Granite 4  32B Small"
+    [15]="IBM Granite Guardian 3.2  5B  ★ safety"
+)
 
-MODEL_SIZE=(  [1]="0.8 GB"  [2]="2.0 GB"  [3]="4.7 GB"   [4]="40 GB"
-              [5]="49.8 GB" [6]="15.5 GB" [7]="4.1 GB"   [8]="7.1 GB"
-              [9]="13 GB"   [10]="1.9 GB" [11]="4.6 GB"  [12]="20 GB" )
+MODEL_SIZE=(
+    [1]="0.8 GB"   [2]="2.0 GB"   [3]="4.7 GB"   [4]="40 GB"
+    [5]="49.8 GB"  [6]="15.5 GB"  [7]="4.1 GB"   [8]="7.1 GB"
+    [9]="13 GB"
+    [10]="1.9 GB"  [11]="4.6 GB"  [12]="20 GB"
+    [13]="~0.9 GB" [14]="~19.5 GB"
+    [15]="~3.1 GB"
+)
 
-MODEL_RAM=(   [1]="4 GB"  [2]="8 GB"  [3]="8 GB"  [4]="48 GB"
-              [5]="64 GB" [6]="64 GB" [7]="8 GB"  [8]="16 GB"
-              [9]="16 GB" [10]="8 GB" [11]="8 GB" [12]="24 GB" )
+MODEL_RAM=(
+    [1]="4 GB"   [2]="8 GB"   [3]="8 GB"   [4]="48 GB"
+    [5]="64 GB"  [6]="64 GB"  [7]="8 GB"   [8]="16 GB"
+    [9]="16 GB"
+    [10]="8 GB"  [11]="8 GB"  [12]="24 GB"
+    [13]="4 GB"  [14]="24 GB"
+    [15]="8 GB"
+)
 
 MODEL_URL=(
     [1]="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
@@ -177,13 +192,18 @@ MODEL_URL=(
     [10]="https://huggingface.co/bartowski/granite-3.0-3b-a800m-instruct-GGUF/resolve/main/granite-3.0-3b-a800m-instruct-Q4_K_M.gguf"
     [11]="https://huggingface.co/bartowski/granite-3.0-8b-instruct-GGUF/resolve/main/granite-3.0-8b-instruct-Q4_K_M.gguf"
     [12]="https://huggingface.co/bartowski/granite-34b-code-instruct-GGUF/resolve/main/granite-34b-code-instruct-Q4_K_M.gguf"
+    [13]="https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_K_M.gguf"
+    [14]="https://huggingface.co/ibm-granite/granite-4.0-h-small-GGUF/resolve/main/granite-4.0-h-small-Q4_K_M.gguf"
+    [15]="https://huggingface.co/ibm-research/granite-guardian-3.2-5b-GGUF/resolve/main/granite-guardian-3.2-5b-Q4_K_M.gguf"
 )
 
 MODEL_OUTPUT=(
-    [1]="model.gguf"  [2]="model.gguf"  [3]="model.gguf"  [4]="model.gguf"
-    [5]="model-00001-of-00002.gguf"     [6]="model-00002-of-00002.gguf"
-    [7]="model.gguf"  [8]="model.gguf"  [9]="model.gguf"
-    [10]="model.gguf" [11]="model.gguf" [12]="model.gguf"
+    [1]="model.gguf"   [2]="model.gguf"   [3]="model.gguf"   [4]="model.gguf"
+    [5]="model-00001-of-00002.gguf"        [6]="model-00002-of-00002.gguf"
+    [7]="model.gguf"   [8]="model.gguf"   [9]="model.gguf"
+    [10]="model.gguf"  [11]="model.gguf"  [12]="model.gguf"
+    [13]="model.gguf"  [14]="model.gguf"
+    [15]="model.gguf"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -211,10 +231,17 @@ row  7 "${MODEL_LABEL[7]}"  "${MODEL_SIZE[7]}"  "${MODEL_RAM[7]}"
 row  8 "${MODEL_LABEL[8]}"  "${MODEL_SIZE[8]}"  "${MODEL_RAM[8]}"
 row  9 "${MODEL_LABEL[9]}"  "${MODEL_SIZE[9]}"  "${MODEL_RAM[9]}"
 
-sec "IBM  —  Granite"
+sec "IBM  —  Granite 3"
 row 10 "${MODEL_LABEL[10]}" "${MODEL_SIZE[10]}" "${MODEL_RAM[10]}"
 row 11 "${MODEL_LABEL[11]}" "${MODEL_SIZE[11]}" "${MODEL_RAM[11]}"
 row 12 "${MODEL_LABEL[12]}" "${MODEL_SIZE[12]}" "${MODEL_RAM[12]}"
+
+sec "IBM  —  Granite 4"
+row 13 "${MODEL_LABEL[13]}" "${MODEL_SIZE[13]}" "${MODEL_RAM[13]}"
+row 14 "${MODEL_LABEL[14]}" "${MODEL_SIZE[14]}" "${MODEL_RAM[14]}"
+
+sec "IBM  —  Granite Guardian  (Safety)"
+row 15 "${MODEL_LABEL[15]}" "${MODEL_SIZE[15]}" "${MODEL_RAM[15]}"
 
 gap
 line
@@ -226,9 +253,9 @@ gap
 
 # ── Validate ───────────────────────────────────────────────────────
 case "$CHOICE" in
-    [1-9]|1[0-2]) ;;
+    [1-9]|1[0-5]) ;;
     q|Q) echo -e "  ${DIM}Exiting.${RESET}\n"; exit 0 ;;
-    *) die "Invalid selection. Enter 1–12 or q." ;;
+    *) die "Invalid selection. Enter 1–15 or q." ;;
 esac
 
 KEY="$CHOICE"
@@ -248,6 +275,17 @@ line
 
 if [[ "$KEY" == "5" || "$KEY" == "6" ]]; then
     warn "Llama 4 Scout requires both parts (5 + 6) in the same folder."
+    gap
+fi
+
+if [[ "$KEY" == "13" || "$KEY" == "14" ]]; then
+    warn "Granite 4 uses the Hybrid Mamba architecture. Requires a recent llama.cpp build."
+    gap
+fi
+
+if [[ "$KEY" == "15" ]]; then
+    warn "Guardian is a safety/risk-detection model, not a chat model."
+    warn "It responds Yes/No to classify whether content is harmful."
     gap
 fi
 
