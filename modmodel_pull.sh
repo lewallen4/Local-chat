@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # ============================================================
 #  Skye-AI — Model Acquisition Utility
-#  Supported: Meta (Llama), Mistral AI, IBM Granite
-#  Quantization: Q4_K_M  |  Usage: bash model_pull.sh
+#
+#  Sources (all URLs live-verified):
+#    Meta Llama      → unsloth
+#    Mistral Small   → unsloth
+#    IBM Granite 3.3 → ibm-granite (official)
+#    IBM Granite 4   → ibm-granite (official)
+#    IBM Guardian    → ibm-research (official)
+#
+#  Quant: Q4_K_M  |  Llama 3.1 8B + Mistral Small → UD-Q4_K_XL
+#  Usage: bash model_pull.sh
 # ============================================================
 
 set -uo pipefail
@@ -61,14 +69,11 @@ human_bytes() {
 }
 
 # ── Pretty progress bar ────────────────────────────────────────────
-# Runs in the foreground, polling the growing output file every 0.5s
-# against the known total size. Cleans up cleanly on exit.
 draw_progress() {
     local DEST="$1"
-    local TOTAL="$2"   # bytes
-    local WIDTH=38     # bar fill width in chars
+    local TOTAL="$2"
+    local WIDTH=38
 
-    # If we don't know the size, just show a spinner
     if [ "$TOTAL" -eq 0 ]; then
         local SPIN=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
         local I=0
@@ -111,7 +116,6 @@ draw_progress() {
         sleep 0.5
     done
 
-    # Final: show 100%
     local FINAL_BAR="${GREEN}"
     for ((i=0; i<WIDTH; i++)); do FINAL_BAR="${FINAL_BAR}█"; done
     FINAL_BAR="${FINAL_BAR}${RESET}"
@@ -124,13 +128,11 @@ do_download() {
     local URL="$1"
     local DEST="$2"
 
-    # Get file size for the progress bar
     echo -e "  ${DIM}Retrieving file info...${RESET}"
     local TOTAL
     TOTAL=$(get_remote_size "$URL")
     gap
 
-    # Start the download silently in the background
     if [ "$DOWNLOADER" = "curl" ]; then
         curl -sS -L -o "$DEST" "$URL" &
     else
@@ -138,10 +140,8 @@ do_download() {
     fi
     DL_PID=$!
 
-    # Draw progress bar in the foreground until download finishes
     draw_progress "$DEST" "$TOTAL"
 
-    # Wait for download to complete and capture exit code
     wait "$DL_PID"
     return $?
 }
@@ -150,60 +150,73 @@ do_download() {
 declare -A MODEL_LABEL MODEL_SIZE MODEL_RAM MODEL_URL MODEL_OUTPUT
 
 MODEL_LABEL=(
-    [1]="Llama 3.2  1B"             [2]="Llama 3.2  3B"
-    [3]="Llama 3.1  8B"             [4]="Llama 3.3  70B"
-    [5]="Llama 4 Scout  (pt 1/2)"   [6]="Llama 4 Scout  (pt 2/2)"
-    [7]="Mistral  7B"               [8]="Mistral Nemo  12B"
-    [9]="Mistral Small  22B"
-    [10]="IBM Granite 3  3B"        [11]="IBM Granite 3  8B"
-    [12]="IBM Granite 3  34B"
-    [13]="IBM Granite 4  1B"        [14]="IBM Granite 4  32B Small"
-    [15]="IBM Granite Guardian 3.2  5B  ★ safety"
+    [1]="Llama 3.2  1B"
+    [2]="Llama 3.2  3B"
+    [3]="Llama 3.1  8B"
+    [4]="Llama 3.3  70B"
+    [5]="Llama 4 Scout  (pt 1/2)"
+    [6]="Llama 4 Scout  (pt 2/2)"
+    [7]="Mistral Small 3.1  24B"
+    [8]="IBM Granite 3.3  8B"
+    [9]="IBM Granite 4  1B"
+    [10]="IBM Granite 4  32B Small"
+    [11]="IBM Granite Guardian 3.2  5B  ★ safety"
 )
 
 MODEL_SIZE=(
-    [1]="0.8 GB"   [2]="2.0 GB"   [3]="4.7 GB"   [4]="40 GB"
-    [5]="49.8 GB"  [6]="15.5 GB"  [7]="4.1 GB"   [8]="7.1 GB"
-    [9]="13 GB"
-    [10]="1.9 GB"  [11]="4.6 GB"  [12]="20 GB"
-    [13]="~0.9 GB" [14]="~19.5 GB"
-    [15]="~3.1 GB"
+    [1]="0.8 GB"
+    [2]="2.0 GB"
+    [3]="5.0 GB"
+    [4]="42.5 GB"
+    [5]="49.8 GB"
+    [6]="15.5 GB"
+    [7]="14.5 GB"
+    [8]="4.6 GB"
+    [9]="0.9 GB"
+    [10]="19.5 GB"
+    [11]="3.1 GB"
 )
 
 MODEL_RAM=(
-    [1]="4 GB"   [2]="8 GB"   [3]="8 GB"   [4]="48 GB"
-    [5]="64 GB"  [6]="64 GB"  [7]="8 GB"   [8]="16 GB"
-    [9]="16 GB"
-    [10]="8 GB"  [11]="8 GB"  [12]="24 GB"
-    [13]="4 GB"  [14]="24 GB"
-    [15]="8 GB"
+    [1]="4 GB"
+    [2]="8 GB"
+    [3]="8 GB"
+    [4]="48 GB"
+    [5]="64 GB"
+    [6]="64 GB"
+    [7]="20 GB"
+    [8]="8 GB"
+    [9]="4 GB"
+    [10]="24 GB"
+    [11]="8 GB"
 )
 
 MODEL_URL=(
-    [1]="https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
-    [2]="https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf"
-    [3]="https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
-    [4]="https://huggingface.co/bartowski/Llama-3.3-70B-Instruct-GGUF/resolve/main/Llama-3.3-70B-Instruct-Q4_K_M.gguf"
+    [1]="https://huggingface.co/unsloth/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    [2]="https://huggingface.co/unsloth/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+    [3]="https://huggingface.co/unsloth/Llama-3.1-8B-Instruct-GGUF/resolve/main/Llama-3.1-8B-Instruct-UD-Q4_K_XL.gguf"
+    [4]="https://huggingface.co/unsloth/Llama-3.3-70B-Instruct-GGUF/resolve/main/Llama-3.3-70B-Instruct-Q4_K_M.gguf"
     [5]="https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf"
     [6]="https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF/resolve/main/Q4_K_M/Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00002-of-00002.gguf"
-    [7]="https://huggingface.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/resolve/main/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-    [8]="https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF/resolve/main/Mistral-Nemo-Instruct-2407-Q4_K_M.gguf"
-    [9]="https://huggingface.co/bartowski/Mistral-Small-Instruct-2409-GGUF/resolve/main/Mistral-Small-Instruct-2409-Q4_K_M.gguf"
-    [10]="https://huggingface.co/bartowski/granite-3.0-3b-a800m-instruct-GGUF/resolve/main/granite-3.0-3b-a800m-instruct-Q4_K_M.gguf"
-    [11]="https://huggingface.co/bartowski/granite-3.0-8b-instruct-GGUF/resolve/main/granite-3.0-8b-instruct-Q4_K_M.gguf"
-    [12]="https://huggingface.co/bartowski/granite-34b-code-instruct-GGUF/resolve/main/granite-34b-code-instruct-Q4_K_M.gguf"
-    [13]="https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_K_M.gguf"
-    [14]="https://huggingface.co/ibm-granite/granite-4.0-h-small-GGUF/resolve/main/granite-4.0-h-small-Q4_K_M.gguf"
-    [15]="https://huggingface.co/ibm-research/granite-guardian-3.2-5b-GGUF/resolve/main/granite-guardian-3.2-5b-Q4_K_M.gguf"
+    [7]="https://huggingface.co/unsloth/Mistral-Small-3.1-24B-Instruct-2503-GGUF/resolve/main/Mistral-Small-3.1-24B-Instruct-2503-UD-Q4_K_XL.gguf"
+    [8]="https://huggingface.co/ibm-granite/granite-3.3-8b-instruct-GGUF/resolve/main/granite-3.3-8b-instruct-Q4_K_M.gguf"
+    [9]="https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_K_M.gguf"
+    [10]="https://huggingface.co/ibm-granite/granite-4.0-h-small-GGUF/resolve/main/granite-4.0-h-small-Q4_K_M.gguf"
+    [11]="https://huggingface.co/ibm-research/granite-guardian-3.2-5b-GGUF/resolve/main/granite-guardian-3.2-5b-Q4_K_M.gguf"
 )
 
 MODEL_OUTPUT=(
-    [1]="model.gguf"   [2]="model.gguf"   [3]="model.gguf"   [4]="model.gguf"
-    [5]="model-00001-of-00002.gguf"        [6]="model-00002-of-00002.gguf"
-    [7]="model.gguf"   [8]="model.gguf"   [9]="model.gguf"
-    [10]="model.gguf"  [11]="model.gguf"  [12]="model.gguf"
-    [13]="model.gguf"  [14]="model.gguf"
-    [15]="model.gguf"
+    [1]="model.gguf"
+    [2]="model.gguf"
+    [3]="model.gguf"
+    [4]="model.gguf"
+    [5]="model-00001-of-00002.gguf"
+    [6]="model-00002-of-00002.gguf"
+    [7]="model.gguf"
+    [8]="model.gguf"
+    [9]="model.gguf"
+    [10]="model.gguf"
+    [11]="model.gguf"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -218,7 +231,7 @@ echo -e "${CYAN}${BOLD}╚══════════════════
 echo -e "  ${DIM}Q4_K_M  ·  via ${DOWNLOADER}  ·  → ${MODELS_DIR}${RESET}"
 
 # ── Menu ───────────────────────────────────────────────────────────
-sec "META  —  Llama"
+sec "META  —  Llama  [unsloth]"
 row  1 "${MODEL_LABEL[1]}"  "${MODEL_SIZE[1]}"  "${MODEL_RAM[1]}"
 row  2 "${MODEL_LABEL[2]}"  "${MODEL_SIZE[2]}"  "${MODEL_RAM[2]}"
 row  3 "${MODEL_LABEL[3]}"  "${MODEL_SIZE[3]}"  "${MODEL_RAM[3]}"
@@ -226,22 +239,18 @@ row  4 "${MODEL_LABEL[4]}"  "${MODEL_SIZE[4]}"  "${MODEL_RAM[4]}"
 row  5 "${MODEL_LABEL[5]}"  "${MODEL_SIZE[5]}"  "${MODEL_RAM[5]}"
 row  6 "${MODEL_LABEL[6]}"  "${MODEL_SIZE[6]}"  "${MODEL_RAM[6]}"
 
-sec "MISTRAL AI"
+sec "MISTRAL AI  [unsloth]"
 row  7 "${MODEL_LABEL[7]}"  "${MODEL_SIZE[7]}"  "${MODEL_RAM[7]}"
+
+sec "IBM  —  Granite 3  [ibm-granite official]"
 row  8 "${MODEL_LABEL[8]}"  "${MODEL_SIZE[8]}"  "${MODEL_RAM[8]}"
+
+sec "IBM  —  Granite 4  [ibm-granite official]"
 row  9 "${MODEL_LABEL[9]}"  "${MODEL_SIZE[9]}"  "${MODEL_RAM[9]}"
-
-sec "IBM  —  Granite 3"
 row 10 "${MODEL_LABEL[10]}" "${MODEL_SIZE[10]}" "${MODEL_RAM[10]}"
+
+sec "IBM  —  Granite Guardian  [ibm-research official]"
 row 11 "${MODEL_LABEL[11]}" "${MODEL_SIZE[11]}" "${MODEL_RAM[11]}"
-row 12 "${MODEL_LABEL[12]}" "${MODEL_SIZE[12]}" "${MODEL_RAM[12]}"
-
-sec "IBM  —  Granite 4"
-row 13 "${MODEL_LABEL[13]}" "${MODEL_SIZE[13]}" "${MODEL_RAM[13]}"
-row 14 "${MODEL_LABEL[14]}" "${MODEL_SIZE[14]}" "${MODEL_RAM[14]}"
-
-sec "IBM  —  Granite Guardian  (Safety)"
-row 15 "${MODEL_LABEL[15]}" "${MODEL_SIZE[15]}" "${MODEL_RAM[15]}"
 
 gap
 line
@@ -253,9 +262,9 @@ gap
 
 # ── Validate ───────────────────────────────────────────────────────
 case "$CHOICE" in
-    [1-9]|1[0-5]) ;;
+    [1-9]|1[01]) ;;
     q|Q) echo -e "  ${DIM}Exiting.${RESET}\n"; exit 0 ;;
-    *) die "Invalid selection. Enter 1–15 or q." ;;
+    *) die "Invalid selection. Enter 1–11 or q." ;;
 esac
 
 KEY="$CHOICE"
@@ -278,12 +287,17 @@ if [[ "$KEY" == "5" || "$KEY" == "6" ]]; then
     gap
 fi
 
-if [[ "$KEY" == "13" || "$KEY" == "14" ]]; then
-    warn "Granite 4 uses the Hybrid Mamba architecture. Requires a recent llama.cpp build."
+if [[ "$KEY" == "3" || "$KEY" == "7" ]]; then
+    warn "Uses Unsloth Dynamic quant (UD-Q4_K_XL) — higher quality than standard Q4_K_M."
     gap
 fi
 
-if [[ "$KEY" == "15" ]]; then
+if [[ "$KEY" == "9" || "$KEY" == "10" ]]; then
+    warn "Granite 4 uses Hybrid Mamba architecture. Requires a recent llama.cpp build."
+    gap
+fi
+
+if [[ "$KEY" == "11" ]]; then
     warn "Guardian is a safety/risk-detection model, not a chat model."
     warn "It responds Yes/No to classify whether content is harmful."
     gap
@@ -318,7 +332,6 @@ if do_download "$URL" "$DEST"; then
     fi
 else
     gap
-    # Clean up partial file on failure
     [ -f "$DEST" ] && rm -f "$DEST" && warn "Partial file removed."
     die "Download failed. Check your connection and try again."
 fi
