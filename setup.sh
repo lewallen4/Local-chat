@@ -374,7 +374,8 @@ check_model() {
         echo -e "  ${YELLOW}⚠  No model file found in server/models/${RESET}"
         echo ""
         echo "  Run the model acquisition utility:"
-        echo "  → bash model_pull.sh"
+        echo "→ bash model_pull.sh or"
+        echo "               modmodel_pull.sh"
         echo ""
     fi
 }
