@@ -97,7 +97,7 @@ class ModelLoader:
                 result = self.model(
                     prompt,
                     max_tokens=max_tokens,
-                    temperature=0.4,    # lower temp = more factual summary
+                    temperature=0.3,    # lower temp = more factual summary
                     top_p=0.9,
                     repeat_penalty=1.1,
                     stop=STOP_SEQUENCES + ["###", "---"],
@@ -123,7 +123,7 @@ class ModelLoader:
                 stream = self.model(
                     prompt,
                     max_tokens=512,
-                    temperature=0.7,
+                    temperature=0.0,
                     top_p=0.95,
                     repeat_penalty=1.1,
                     stop=STOP_SEQUENCES,
