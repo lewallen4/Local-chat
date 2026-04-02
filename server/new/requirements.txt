@@ -1,5 +1,0 @@
-flask
-flask-cors
-llama-cpp-python
-torch
-werkzeug
