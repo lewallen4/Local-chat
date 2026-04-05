@@ -218,7 +218,18 @@ async function enterApp(userId, returning, pastSessions = []) {
 
     userBadge.textContent = userId.toUpperCase().slice(0, 8);
 
-    if (returning && pastSessions.length > 0) {
+    // Always fetch sessions from server (covers page refresh via sessionStorage shortcut)
+    if (!pastSessions.length) {
+        try {
+            const res = await fetch(`/api/user/${encodeURIComponent(userId)}/sessions`);
+            if (res.ok) {
+                const data = await res.json();
+                pastSessions = data.sessions || [];
+            }
+        } catch { /* proceed without sessions */ }
+    }
+
+    if (pastSessions.length > 0) {
         welcomeHeading.textContent = `Welcome back, ${userId}.`;
         welcomeSub.textContent     = `${pastSessions.length} previous session${pastSessions.length !== 1 ? 's' : ''} loaded.`;
         populatePastSessions(pastSessions);
