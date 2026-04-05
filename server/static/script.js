@@ -40,6 +40,76 @@ const switchUserBtn     = $('switch-user-btn');
 const welcomeHeading    = $('welcome-heading');
 const welcomeSub        = $('welcome-sub');
 
+// ── Markdown rendering ────────────────────────────────────────────────
+(function initMarked() {
+    if (typeof marked === 'undefined') return;
+    marked.setOptions({
+        highlight: function(code, lang) {
+            if (typeof hljs !== 'undefined' && lang && hljs.getLanguage(lang)) {
+                try { return hljs.highlight(code, { language: lang }).value; }
+                catch {}
+            }
+            if (typeof hljs !== 'undefined') {
+                try { return hljs.highlightAuto(code).value; }
+                catch {}
+            }
+            return code;
+        },
+        breaks: true,
+        gfm: true,
+    });
+})();
+
+/* Turn <think>…</think> blocks into collapsible details, then run marked */
+function renderMarkdown(raw) {
+    // Strip <think> blocks into collapsible sections
+    let text = raw.replace(
+        /<think>([\s\S]*?)(?:<\/think>|$)/gi,
+        (_, inner) => {
+            const closed = raw.includes('</think>');
+            const escapedInner = escHtml(inner.trim());
+            return `<details class="think-block"${closed ? '' : ' open'}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
+        }
+    );
+
+    // Strip any other XML-ish tags the model might emit (but not HTML we just created)
+    // Leave our <details>, <summary>, <div> alone
+    text = text.replace(/<\/?(?!details|summary|div|\/details|\/summary|\/div)[a-z_][a-z0-9_-]*\b[^>]*>/gi, (match) => {
+        // Keep our think-block elements
+        if (match.includes('think-block') || match.includes('think-body')) return match;
+        return escHtml(match);
+    });
+
+    if (typeof marked !== 'undefined') {
+        try { return marked.parse(text); } catch {}
+    }
+    return escHtml(text).replace(/\n/g, '<br>');
+}
+
+/* Highlight all code blocks inside a container */
+function highlightCode(container) {
+    if (typeof hljs === 'undefined') return;
+    container.querySelectorAll('pre code').forEach(block => {
+        hljs.highlightElement(block);
+    });
+    // Add copy buttons to code blocks
+    container.querySelectorAll('pre').forEach(pre => {
+        if (pre.querySelector('.code-copy-btn')) return;
+        const lang = pre.querySelector('code')?.className?.match(/language-(\S+)/)?.[1] || '';
+        const header = document.createElement('div');
+        header.className = 'code-header';
+        header.innerHTML = `<span class="code-lang">${escHtml(lang)}</span><button class="code-copy-btn" title="Copy code">Copy</button>`;
+        header.querySelector('.code-copy-btn').addEventListener('click', () => {
+            const code = pre.querySelector('code')?.textContent || '';
+            navigator.clipboard.writeText(code).then(() => {
+                header.querySelector('.code-copy-btn').textContent = 'Copied!';
+                setTimeout(() => { header.querySelector('.code-copy-btn').textContent = 'Copy'; }, 1500);
+            });
+        });
+        pre.insertBefore(header, pre.firstChild);
+    });
+}
+
 // ── Theme ────────────────────────────────────────────────────────────
 function initTheme() {
     const saved = localStorage.getItem('localchat-theme') || 'dark';
@@ -49,6 +119,13 @@ function initTheme() {
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('localchat-theme', theme);
+    // Swap highlight.js theme
+    const darkSheet  = document.getElementById('hljs-theme-dark');
+    const lightSheet = document.getElementById('hljs-theme-light');
+    if (darkSheet && lightSheet) {
+        darkSheet.disabled  = (theme === 'light');
+        lightSheet.disabled = (theme === 'dark');
+    }
     if (themeToggle) {
         themeToggle.title     = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
         themeToggle.innerHTML = theme === 'dark' ? sunIcon() : moonIcon();
@@ -355,12 +432,22 @@ async function sendMessage() {
     const { row, contentEl, metaEl } = createAssistantBubble();
     chatMessages.appendChild(row);
 
-    const textNode = document.createTextNode('');
-    contentEl.appendChild(textNode);
-    contentEl.classList.add('streaming');
+    contentEl.classList.add('streaming', 'markdown-body');
 
-    let fullResponse = '';
-    let stopped      = false;
+    let fullResponse   = '';
+    let stopped        = false;
+    let renderPending  = false;
+
+    // Throttled re-render: at most every 80ms during streaming
+    function scheduleRender() {
+        if (renderPending) return;
+        renderPending = true;
+        requestAnimationFrame(() => {
+            contentEl.innerHTML = renderMarkdown(fullResponse);
+            scrollToBottom();
+            renderPending = false;
+        });
+    }
 
     try {
         const res = await fetch(`/api/chat/${currentSessionId}`, {
@@ -400,8 +487,7 @@ async function sendMessage() {
 
                     if (payload.chunk !== undefined) {
                         fullResponse += payload.chunk;
-                        textNode.textContent = fullResponse;
-                        scrollToBottom();
+                        scheduleRender();
                     } else if (payload.done) {
                         break outer;
                     } else if (payload.error) {
@@ -413,6 +499,10 @@ async function sendMessage() {
 
         activeReader = null;
         contentEl.classList.remove('streaming');
+
+        // Final render with full syntax highlighting
+        contentEl.innerHTML = renderMarkdown(fullResponse);
+        highlightCode(contentEl);
 
         if (stopped) {
             const mark = document.createElement('span');
@@ -460,7 +550,15 @@ function appendMessage(role, text) {
 
     const content = document.createElement('div');
     content.className   = 'bubble-content';
-    content.textContent = text;
+
+    if (role === 'assistant') {
+        content.classList.add('markdown-body');
+        content.innerHTML = renderMarkdown(text);
+        // Defer highlight so DOM is settled
+        requestAnimationFrame(() => highlightCode(content));
+    } else {
+        content.textContent = text;
+    }
 
     const meta = document.createElement('div');
     meta.className   = 'bubble-meta';
