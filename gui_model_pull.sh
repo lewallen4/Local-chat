@@ -161,6 +161,10 @@ MODEL_LABEL=(
     [9]="IBM Granite 4  1B"
     [10]="IBM Granite 4  32B Small"
     [11]="IBM Granite Guardian 3.2  5B  ★ safety"
+    [12]="Gemma 4  31B  (UD-Q4_K_XL)  ★ recommended"
+    [13]="Gemma 4  31B  (Q8_0)"
+    [14]="Gemma 4  31B  (Q4_K_M)"
+    [15]="Gemma 4  31B  (Q6_K)"
 )
 
 MODEL_SIZE=(
@@ -175,6 +179,10 @@ MODEL_SIZE=(
     [9]="0.9 GB"
     [10]="19.5 GB"
     [11]="3.1 GB"
+    [12]="18.8 GB"
+    [13]="32.6 GB"
+    [14]="18.3 GB"
+    [15]="25.2 GB"
 )
 
 MODEL_RAM=(
@@ -189,6 +197,10 @@ MODEL_RAM=(
     [9]="4 GB"
     [10]="24 GB"
     [11]="8 GB"
+    [12]="24 GB"
+    [13]="40 GB"
+    [14]="24 GB"
+    [15]="32 GB"
 )
 
 MODEL_URL=(
@@ -203,6 +215,10 @@ MODEL_URL=(
     [9]="https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_K_M.gguf"
     [10]="https://huggingface.co/ibm-granite/granite-4.0-h-small-GGUF/resolve/main/granite-4.0-h-small-Q4_K_M.gguf"
     [11]="https://huggingface.co/ibm-research/granite-guardian-3.2-5b-GGUF/resolve/main/granite-guardian-3.2-5b-Q4_K_M.gguf"
+    [12]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q4_K_XL.gguf"
+    [13]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q8_0.gguf"
+    [14]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+    [15]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q6_K.gguf"
 )
 
 MODEL_OUTPUT=(
@@ -217,6 +233,10 @@ MODEL_OUTPUT=(
     [9]="model.gguf"
     [10]="model.gguf"
     [11]="model.gguf"
+    [12]="model.gguf"
+    [13]="model.gguf"
+    [14]="model.gguf"
+    [15]="model.gguf"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -252,6 +272,12 @@ row 10 "${MODEL_LABEL[10]}" "${MODEL_SIZE[10]}" "${MODEL_RAM[10]}"
 sec "IBM  —  Granite Guardian  [ibm-research official]"
 row 11 "${MODEL_LABEL[11]}" "${MODEL_SIZE[11]}" "${MODEL_RAM[11]}"
 
+sec "GOOGLE  —  Gemma 4  [unsloth]"
+row 12 "${MODEL_LABEL[12]}" "${MODEL_SIZE[12]}" "${MODEL_RAM[12]}"
+row 13 "${MODEL_LABEL[13]}" "${MODEL_SIZE[13]}" "${MODEL_RAM[13]}"
+row 14 "${MODEL_LABEL[14]}" "${MODEL_SIZE[14]}" "${MODEL_RAM[14]}"
+row 15 "${MODEL_LABEL[15]}" "${MODEL_SIZE[15]}" "${MODEL_RAM[15]}"
+
 gap
 line
 echo -e "  ${DIM}Select a number  |  q to quit${RESET}"
@@ -262,9 +288,9 @@ gap
 
 # ── Validate ───────────────────────────────────────────────────────
 case "$CHOICE" in
-    [1-9]|1[01]) ;;
+    [1-9]|1[0-5]) ;;
     q|Q) echo -e "  ${DIM}Exiting.${RESET}\n"; exit 0 ;;
-    *) die "Invalid selection. Enter 1–11 or q." ;;
+    *) die "Invalid selection. Enter 1–15 or q." ;;
 esac
 
 KEY="$CHOICE"
@@ -300,6 +326,23 @@ fi
 if [[ "$KEY" == "11" ]]; then
     warn "Guardian is a safety/risk-detection model, not a chat model."
     warn "It responds Yes/No to classify whether content is harmful."
+    gap
+fi
+
+if [[ "$KEY" == "12" ]]; then
+    warn "Unsloth Dynamic quant (UD-Q4_K_XL) — best quality-per-bit for Gemma 4."
+    warn "Gemma 4 31B uses 256K context. At 8K context: ~22 GB VRAM with llama.cpp."
+    gap
+fi
+
+if [[ "$KEY" == "13" ]]; then
+    warn "Q8_0 is the highest practical quant — needs ~40 GB RAM/VRAM."
+    warn "Gemma 4 31B uses 256K context. Use --ctx-size to limit if needed."
+    gap
+fi
+
+if [[ "$KEY" == "14" || "$KEY" == "15" ]]; then
+    warn "Gemma 4 31B uses 256K context. At 8K context: ~22-28 GB VRAM with llama.cpp."
     gap
 fi
 
