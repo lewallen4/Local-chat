@@ -115,6 +115,37 @@ class ModelLoader:
 
         return ""
 
+    def generate_summary(self, prompt: str, max_tokens: int = 200) -> str:
+        """
+        Blocking generation specifically for session summarization.
+        Uses stop sequences that won't collide with transcript content
+        (the transcript uses 'Person:' / 'AI:' labels, not 'User:' / 'Human:').
+        """
+        # Stop sequences safe for summarization — won't fire on transcript content
+        summary_stops = ["---", "###", "\n\n\n", "Person:", "AI:", "Transcript:"]
+
+        if self.backend == "llama.cpp":
+            try:
+                result = self.model(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=0.4,
+                    top_p=0.9,
+                    repeat_penalty=1.1,
+                    stop=summary_stops,
+                    echo=False,
+                    stream=False,
+                )
+                return result["choices"][0]["text"].strip()
+            except Exception as e:
+                print(f"generate_summary error: {e}")
+                return ""
+
+        elif self.backend == "transformers":
+            return ""
+
+        return ""
+
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         prompt = context.get("prompt", "")
 

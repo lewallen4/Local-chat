@@ -14,25 +14,20 @@ from datetime import datetime
 
 
 # ── Summary prompt ──────────────────────────────────────────────────
-# Kept very short and directive so even TinyLlama produces clean output.
-# The model is asked for plain bullet points — no headers, no prose,
-# easy to inject into future prompts without confusing the model.
+# Directive: 1–3 sentences of prose. No bullets, no headers.
+# Short enough to reinject into future system prompts without bloat.
 
 SUMMARY_PROMPT_TEMPLATE = """\
-You are a note-taking assistant. Read this conversation and write a short memory note.
+Below is a transcript of a chat session.
+Write a 1–3 sentence summary capturing only the key facts, decisions, or requests.
+Do NOT use bullet points. Write plain prose sentences only.
+If nothing notable happened, write: No notable content.
 
-Rules:
-- Maximum 6 bullet points total
-- Each bullet starts with "- "
-- Only include facts, decisions, or topics that would be useful to remember later
-- Do not summarize the AI's responses, only what the USER said or decided
-- Do not add headers, titles, or any formatting other than "- " bullets
-- If there is nothing worth remembering, write only: - (no notable facts)
-
-CONVERSATION:
+---
 {conversation}
+---
 
-MEMORY NOTE:"""
+Summary: """
 
 
 class SessionSummarizer:
@@ -52,7 +47,7 @@ class SessionSummarizer:
         """
         Returns a summary dict consumed by session_manager.save_to_memory().
         {
-            "bullets":       str,   # the model's bullet-point summary
+            "summary":       str,   # 1–3 sentence prose summary
             "message_count": int,
             "timestamp":     str,
         }
@@ -64,10 +59,10 @@ class SessionSummarizer:
         timestamp     = datetime.now().strftime("%Y-%m-%d %H:%M")
         message_count = len(messages)
 
-        bullets = self._model_summary(messages)
+        summary = self._model_summary(messages)
 
         return {
-            "bullets":       bullets,
+            "summary":       summary,
             "message_count": message_count,
             "timestamp":     timestamp,
         }
@@ -77,50 +72,82 @@ class SessionSummarizer:
     def _model_summary(self, messages: List[Dict]) -> str:
         """
         Ask the model to summarize the session.
-        Returns a string of "- bullet" lines, or a fallback if unavailable.
+        Returns 1–3 sentences of prose. Always produces at least one
+        meaningful sentence even if the model call fails.
         """
-        if self._model is None:
-            return "- (summary unavailable — model not set)"
+        # Build the content-based fallback first so every path can use it
+        fallback = self._fallback_summary(messages)
 
-        # Build a compact transcript for the prompt.
-        # We only send user messages — the model's own replies aren't
-        # useful to remember and waste context tokens.
+        if self._model is None:
+            return fallback
+
+        # Build a compact transcript using neutral labels
         user_lines = []
         for m in messages:
-            if m["role"] == "user":
-                # Truncate very long messages to keep the prompt manageable
-                content = m["content"].strip()
-                if len(content) > 300:
-                    content = content[:300] + "…"
-                user_lines.append(f"User: {content}")
+            role_label = "Person" if m["role"] == "user" else "AI"
+            content = m["content"].strip()
+            if len(content) > 300:
+                content = content[:300] + "…"
+            user_lines.append(f"{role_label}: {content}")
 
         if not user_lines:
-            return "- (no user messages to summarize)"
+            return fallback
 
-        # Cap at last 20 user messages so the prompt stays under context limit
+        # Cap at last 20 messages so the prompt stays under context limit
         transcript = "\n".join(user_lines[-20:])
         prompt     = SUMMARY_PROMPT_TEMPLATE.format(conversation=transcript)
 
         try:
-            raw = self._model.generate_simple(prompt, max_tokens=200)
+            raw = self._model.generate_summary(prompt, max_tokens=150)
         except Exception as e:
             print(f"Summarizer model call failed: {e}")
-            return f"- (summary failed: {e})"
+            return fallback
 
-        if not raw:
-            return "- (model returned empty summary)"
+        if not raw or not raw.strip():
+            return fallback
 
-        # Clean up the output — ensure every line starts with "- "
-        cleaned_lines = []
-        for line in raw.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if not line.startswith("- "):
-                line = "- " + line.lstrip("-• ").strip()
-            cleaned_lines.append(line)
+        # Clean: collapse to at most 3 sentences
+        raw = raw.strip()
+        # Remove any bullets the model snuck in
+        lines = raw.splitlines()
+        cleaned = " ".join(
+            line.lstrip("-•* ").strip()
+            for line in lines
+            if line.strip()
+        )
 
-        if not cleaned_lines:
-            return "- (no summary produced)"
+        # Split on sentence boundaries, keep first 3
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', cleaned)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        if not sentences:
+            return fallback
 
-        return "\n".join(cleaned_lines[:6])  # hard cap at 6 bullets
+        result = " ".join(sentences[:3])
+        # Ensure it ends with punctuation
+        if result and result[-1] not in ".!?":
+            result += "."
+
+        return result
+
+    def _fallback_summary(self, messages: List[Dict]) -> str:
+        """
+        Build a concrete one-sentence summary from the first user message.
+        Guarantees every session has a real description, not a placeholder.
+        """
+        first_user_msg = ""
+        for m in messages:
+            if m.get("role") == "user":
+                first_user_msg = m["content"].strip()
+                break
+
+        count = len(messages)
+
+        if first_user_msg:
+            preview = first_user_msg[:120]
+            if len(first_user_msg) > 120:
+                preview += "…"
+            return f"Session with {count} messages, starting with: {preview}"
+
+        return f"Session with {count} messages."
+

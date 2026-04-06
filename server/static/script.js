@@ -367,11 +367,14 @@ async function loadPastSession(sessionId, title) {
     // Don't reload the session already active
     if (currentSessionId === sessionId) return;
 
-    // End whatever live session is currently open
-    markAllSessionsInactive();
-    await endCurrentSession();
+    // End whatever live session is currently open (best-effort, no new session)
+    if (currentSessionId) {
+        try { await fetch(`/api/chat/${currentSessionId}/end`, { method: 'POST' }); } catch {}
+        currentSessionId = null;
+    }
 
     // Highlight selected item in sidebar
+    markAllSessionsInactive();
     const item = sessionList.querySelector('[data-sid="' + sessionId + '"]');
     if (item) item.classList.add('active');
 
@@ -394,15 +397,33 @@ async function loadPastSession(sessionId, title) {
         appendSystemMsg('— continuing session —');
         scrollToBottom();
 
-        // Seed the new live session with the full prior message history
-        // so the model can answer questions about what was said before
-        await startSession(messages);
+        // Rejoin the existing session on the backend (same session_id, no duplicate)
+        const rejoinRes = await fetch('/api/chat/rejoin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: currentUserId,
+                session_id: sessionId,
+            }),
+        });
+
+        if (!rejoinRes.ok) throw new Error('Rejoin failed: HTTP ' + rejoinRes.status);
+
+        currentSessionId = sessionId;
+        sessionIdDisplay.textContent = sessionId.slice(0, 8) + '…';
+        setStatus('online', 'Online');
 
         exchangeCount = messages.filter(m => m.role === 'user').length;
         updateCount();
 
+        userInput.disabled  = false;
+        sendButton.disabled = false;
+        userInput.focus();
+
     } catch (err) {
         chatMessages.innerHTML = '<div class="system-msg">⚠ Could not load session: ' + escHtml(err.message) + '</div>';
+        setStatus('error', 'Error');
+        // Fall back to starting a fresh session
         await startSession();
     }
 }
@@ -677,6 +698,11 @@ function createSessionItem(sessionId, title, meta, isActive) {
 
 // Called when a brand-new live session sends its first message
 function addSessionToList(sessionId, firstMessage) {
+    // Don't add if this session is already in the sidebar
+    if (sessionList.querySelector('[data-sid="' + sessionId + '"]')) {
+        return;
+    }
+
     const empty = sessionList.querySelector('.session-empty');
     if (empty) empty.remove();
 

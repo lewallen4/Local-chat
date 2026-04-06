@@ -216,6 +216,14 @@ async def start_chat(request: Request):
             detail="Invalid user ID. Must be exactly 5 alphanumeric characters, hyphens, or underscores."
         )
 
+    # End any existing active session for this user first (one active session per user)
+    existing_sids = [
+        sid for sid, s in list(active_sessions.items())
+        if s.get("user_id") == user_id
+    ]
+    for sid in existing_sids:
+        await end_session(sid)
+
     # Provision workspace (no-op if already exists)
     sm = SessionManager(user_id)
     global_memory = sm.load_memory()
@@ -256,6 +264,77 @@ async def start_chat(request: Request):
         "memory_loaded": bool(global_memory),
         "seeded_messages": len(seeded),
         "message": "Session started",
+    })
+
+
+@app.post("/api/chat/rejoin")
+async def rejoin_session(request: Request):
+    """
+    Rejoin an existing saved session. Loads the session log back into
+    active_sessions so the user can continue chatting without creating
+    a duplicate session.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    user_id    = data.get("user_id", "").strip()
+    session_id = data.get("session_id", "").strip()
+
+    if not user_id or not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Valid user_id is required")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+
+    # If this session is already active, just return it
+    if session_id in active_sessions:
+        session = active_sessions[session_id]
+        session["last_active"] = datetime.now()
+        return JSONResponse({
+            "session_id": session_id,
+            "user_id": user_id,
+            "rejoined": True,
+            "message_count": len(session["messages"]),
+        })
+
+    # End any other active session for this user first
+    existing_sids = [
+        sid for sid, s in list(active_sessions.items())
+        if s.get("user_id") == user_id
+    ]
+    for sid in existing_sids:
+        await end_session(sid)
+
+    # Load from saved session log
+    sm = SessionManager(user_id)
+    log = sm.load_session_log(session_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = log.get("messages", [])
+    global_memory = sm.load_memory()
+
+    active_sessions[session_id] = {
+        "id": session_id,
+        "user_id": user_id,
+        "session_manager": sm,
+        "messages": messages,
+        "context_memory": global_memory,
+        "last_active": datetime.now(),
+        "created_at": log.get("created_at", datetime.now().isoformat()),
+        "metadata": log.get("metadata", {}),
+    }
+
+    # Re-establish WAL
+    for m in messages:
+        wal_append(session_id, m)
+
+    return JSONResponse({
+        "session_id": session_id,
+        "user_id": user_id,
+        "rejoined": True,
+        "message_count": len(messages),
     })
 
 

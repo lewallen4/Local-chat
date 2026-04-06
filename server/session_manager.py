@@ -26,11 +26,12 @@ from typing import List, Dict, Any, Optional
 import hashlib
 
 
-MAX_SESSIONS = 10
+MAX_SESSIONS = 100
 
 SYSTEM_PROMPT_PATH = Path("models/system_prompt.txt")
 DEFAULT_MEMORY_PATH = Path("models/default_memory.md")
 USERS_DIR = Path("users")
+COLD_STORAGE_DIR_NAME = "cold_session_storage"
 
 SYSTEM_PROMPT_FALLBACK = (
     "You are a helpful AI assistant running locally on the user's machine.\n"
@@ -176,10 +177,21 @@ class SessionManager:
 
     def save_session_log(self, session_id: str, session_data: Dict) -> None:
         log_file = self.sessions_dir / f"session_{session_id}.json"
+
+        # If log already exists, preserve original created_at
+        existing_created = None
+        if log_file.exists():
+            try:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    old = json.load(f)
+                existing_created = old.get("created_at")
+            except Exception:
+                pass
+
         save_data = {
             "session_id": session_id,
             "user_id": self.user_id,
-            "created_at": _iso(session_data.get("created_at")),
+            "created_at": existing_created or _iso(session_data.get("created_at")),
             "ended_at": datetime.now().isoformat(),
             "message_count": len(session_data.get("messages", [])),
             "messages": session_data.get("messages", []),
@@ -196,23 +208,51 @@ class SessionManager:
         return None
 
     def list_sessions(self) -> List[Dict]:
-        """Return a summary list of all saved sessions for this user, newest first."""
-        logs = sorted(self.sessions_dir.glob("session_*.json"), reverse=True)
-        result = []
-        for log in logs[:20]:  # cap at 20 for the sidebar
+        """Return a summary list of all saved sessions for this user, sorted by last accessed (newest first)."""
+        logs = list(self.sessions_dir.glob("session_*.json"))
+        entries = []
+        for log in logs:
             try:
                 with open(log, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                result.append({
+                # Use ended_at as the sort key (most recent interaction)
+                ended = data.get("ended_at", data.get("created_at", ""))
+                entries.append({
                     "session_id": data.get("session_id", ""),
                     "created_at": data.get("created_at", ""),
-                    "ended_at": data.get("ended_at", ""),
+                    "ended_at": ended,
                     "message_count": data.get("message_count", 0),
                     "preview": _session_preview(data.get("messages", [])),
+                    "_path": log,
+                    "_sort_key": ended,
                 })
             except Exception:
                 pass
-        return result
+
+        # Sort by last accessed, newest first
+        entries.sort(key=lambda e: e["_sort_key"], reverse=True)
+
+        # Enforce 100-session cap — archive overflow to cold storage
+        if len(entries) > MAX_SESSIONS:
+            cold_dir = self.sessions_dir.parent / COLD_STORAGE_DIR_NAME
+            cold_dir.mkdir(exist_ok=True)
+            overflow = entries[MAX_SESSIONS:]
+            for entry in overflow:
+                src = entry["_path"]
+                dst = cold_dir / src.name
+                try:
+                    shutil.move(str(src), str(dst))
+                    print(f"  ❄ Archived {src.name} to cold storage")
+                except Exception as e:
+                    print(f"  ✗ Cold archive failed for {src.name}: {e}")
+            entries = entries[:MAX_SESSIONS]
+
+        # Strip internal fields before returning
+        for e in entries:
+            e.pop("_path", None)
+            e.pop("_sort_key", None)
+
+        return entries
 
     def get_session_hash(self, messages: List[Dict]) -> str:
         content = "".join([f"{m['role']}:{m['content']}" for m in messages])
@@ -223,8 +263,8 @@ class SessionManager:
     def _format_entry(self, summary: Dict) -> str:
         ts = summary.get("timestamp", datetime.now().strftime("%Y-%m-%d %H:%M"))
         count = summary.get("message_count", 0)
-        bullets = summary.get("bullets", "- (no summary)")
-        lines = [f"### {ts}  ({count} messages)", bullets, ""]
+        text = summary.get("summary", "(no summary)")
+        lines = [f"### {ts}  ({count} messages)", text, ""]
         return "\n".join(lines)
 
     def _insert_entry(self, entry: str) -> None:
