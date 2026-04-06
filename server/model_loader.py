@@ -55,7 +55,7 @@ class ModelLoader:
             try:
                 self.model = llama_cpp.Llama(
                     model_path=str(self.model_path),
-                    n_ctx=2048,
+                    n_ctx=4096,
                     n_threads=4,
                     n_gpu_layers=0,
                     verbose=False,
