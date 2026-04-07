@@ -15,6 +15,7 @@ import os
 from model_loader import ModelLoader
 from session_manager import SessionManager, is_returning_user, provision_user
 from summarizer import SessionSummarizer
+from knowledge_base import KnowledgeBase
 
 app = FastAPI()
 
@@ -34,6 +35,8 @@ _model_path = os.environ.get("HAVEN_MODEL_PATH", "models/model.gguf")
 model_loader = ModelLoader(_model_path)
 summarizer = SessionSummarizer()
 summarizer.set_model(model_loader)
+knowledge = KnowledgeBase()
+knowledge.set_model(model_loader)
 
 # active_sessions maps session_id -> session dict (includes user_id + SessionManager)
 active_sessions: Dict[str, dict] = {}
@@ -165,6 +168,7 @@ async def cleanup_stale_sessions():
 @app.on_event("startup")
 async def startup_event():
     await recover_crashed_sessions()
+    knowledge.load_index()
     asyncio.create_task(cleanup_stale_sessions())
 
 
@@ -366,7 +370,12 @@ async def chat(session_id: str, request: Request):
     msgs.append(user_msg)
     wal_append(session_id, user_msg)
 
-    full_context = sm.prepare_context(msgs, session["context_memory"])
+    # Retrieve relevant knowledge chunks for this query
+    kb_context = ""
+    if knowledge.ready:
+        kb_context = knowledge.get_context(user_message)
+
+    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context)
 
     async def generate():
         full_response = ""
@@ -430,6 +439,47 @@ async def get_memory(user_id: str = ""):
         return JSONResponse({"memory": ""})
     sm = SessionManager(user_id)
     return JSONResponse({"memory": sm.load_memory()})
+
+
+@app.get("/api/knowledge/status")
+async def knowledge_status():
+    """Check whether the knowledge base is loaded and how many chunks it has."""
+    return JSONResponse({
+        "ready": knowledge.ready,
+        "chunk_count": knowledge.chunk_count,
+    })
+
+
+@app.post("/api/knowledge/ingest")
+async def knowledge_ingest():
+    """
+    Trigger ingestion of all files in the knowledge/ directory.
+    This embeds every chunk with the loaded model — may take a few minutes.
+    """
+    count = knowledge.ingest()
+    if count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No chunks ingested. Put .xml, .md, or .txt files in the knowledge/ directory."
+        )
+    return JSONResponse({
+        "message": f"Ingested {count} chunks",
+        "chunk_count": count,
+    })
+
+
+@app.get("/api/knowledge/search")
+async def knowledge_search(q: str = ""):
+    """Test search against the knowledge base."""
+    if not q:
+        raise HTTPException(status_code=400, detail="Pass ?q=your+query")
+    if not knowledge.ready:
+        return JSONResponse({"results": [], "message": "Knowledge base not loaded"})
+    results = knowledge.search(q)
+    return JSONResponse({
+        "query": q,
+        "results": [{"title": r["title"], "text": r["text"][:200], "score": round(r["score"], 4)} for r in results],
+    })
 
 
 @app.get("/api/debug/{session_id}")

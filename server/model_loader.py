@@ -60,7 +60,7 @@ class ModelLoader:
                     n_gpu_layers=0,
                     verbose=False,
                     logits_all=False,
-                    embedding=False,
+                    embedding=True,
                 )
                 self.backend = "llama.cpp"
                 print("✅ Model loaded with llama.cpp")
@@ -145,6 +145,23 @@ class ModelLoader:
             return ""
 
         return ""
+
+    def embed(self, text: str) -> list:
+        """
+        Generate an embedding vector for the given text.
+        Returns a list of floats, or empty list on failure.
+        """
+        if self.backend == "llama.cpp":
+            try:
+                result = self.model.embed(text)
+                # llama-cpp-python may return list-of-lists or flat list
+                if result and isinstance(result[0], list):
+                    return result[0]
+                return result
+            except Exception as e:
+                print(f"embed error: {e}")
+                return []
+        return []
 
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         prompt = context.get("prompt", "")

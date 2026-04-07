@@ -140,7 +140,7 @@ class SessionManager:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 
-    def prepare_context(self, messages: List[Dict], global_memory: str) -> Dict[str, Any]:
+    def prepare_context(self, messages: List[Dict], global_memory: str, knowledge_context: str = "") -> Dict[str, Any]:
         recent = messages[-12:]
 
         conversation_lines = []
@@ -163,6 +163,7 @@ class SessionManager:
 
         prompt = (
             f"{system_prompt}\n\n"
+            f"{knowledge_context}"
             f"{memory_block}"
             "CONVERSATION:\n"
             f"{conversation_block}\n"
