@@ -231,6 +231,25 @@
                 </div>
 
                 <div class="settings-section">
+                    <label class="settings-label">Thinking Mode</label>
+                    <p class="settings-desc">Let the model reason step-by-step before answering. Works best with Gemma 4.</p>
+                    <div class="settings-toggle-row">
+                        <span class="settings-toggle-label">Enable thinking</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="thinking-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-toggle-row">
+                        <span class="settings-toggle-label">Show thoughts in chat</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="show-thoughts-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <label class="settings-label">Add a Fact</label>
                     <p class="settings-desc">Saved to your memory file permanently. 100 characters max.</p>
                     <div class="settings-fact-row">
