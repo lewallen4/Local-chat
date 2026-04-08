@@ -364,12 +364,16 @@ class SessionManager:
 # ── Helpers ───────────────────────────────────────────────────────────
 
 def _strip_think_blocks(text: str) -> str:
-    """Remove <think>...</think> and <|channel>thought...<channel|> blocks from model output.
+    """Remove thinking blocks from model output in all known formats.
     Per Gemma 4 guidelines, prior thinking should not be included in conversation history."""
-    # Gemma 4 style
+    # Gemma 4 channel style
     text = re.sub(r"<\|channel>thought[\s\S]*?<channel\|>", "", text)
-    # Generic <think> style
+    # <thought>...</thought> (Gemma 4 variant)
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text)
+    # <think>...</think> (generic / DeepSeek / Qwen)
     text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    # Clean any stray tags
+    text = re.sub(r"</?(thought|think)>", "", text)
     return text.strip()
 
 
