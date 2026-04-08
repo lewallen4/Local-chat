@@ -404,7 +404,9 @@ async def chat(session_id: str, request: Request):
                 # so they don't get fed back into future prompts
                 if model_loader.arch == "gemma4":
                     stored_content = re.sub(r"<\|channel>thought[\s\S]*?<channel\|>", "", stored_content).strip()
+                    stored_content = re.sub(r"<thought>[\s\S]*?</thought>", "", stored_content).strip()
                     stored_content = re.sub(r"<think>[\s\S]*?</think>", "", stored_content).strip()
+                    stored_content = re.sub(r"</?(thought|think)>", "", stored_content).strip()
                 assistant_msg = {
                     "role": "assistant",
                     "content": stored_content,
