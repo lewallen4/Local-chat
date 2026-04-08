@@ -80,13 +80,40 @@ function renderMarkdown(raw) {
 
 /* Highlight all code blocks inside a container */
 function highlightCode(container) {
-    if (typeof hljs === 'undefined') return;
+    // Fix HTML entities the model may have pre-escaped inside code blocks
     container.querySelectorAll('pre code').forEach(block => {
-        hljs.highlightElement(block);
+        // Check if the block contains escaped entities that shouldn't be there
+        const html = block.innerHTML;
+        if (html.includes('&amp;lt;') || html.includes('&amp;gt;') || html.includes('&amp;quot;')) {
+            // Double-escaped: &amp;lt; → &lt; → <
+            block.innerHTML = html
+                .replace(/&amp;lt;/g, '&lt;')
+                .replace(/&amp;gt;/g, '&gt;')
+                .replace(/&amp;quot;/g, '&quot;')
+                .replace(/&amp;amp;/g, '&amp;');
+        }
+        // Single-escaped entities in textContent that should be literal chars
+        // (model outputting &lt; instead of <)
+        const text = block.textContent;
+        if (text.includes('&lt;') || text.includes('&gt;') || text.includes('&quot;')) {
+            block.textContent = text
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&quot;/g, '"')
+                .replace(/&amp;/g, '&');
+        }
     });
+
+    // Syntax highlighting
+    if (typeof hljs !== 'undefined') {
+        container.querySelectorAll('pre code').forEach(block => {
+            hljs.highlightElement(block);
+        });
+    }
+
     // Add copy buttons to code blocks
     container.querySelectorAll('pre').forEach(pre => {
-        if (pre.querySelector('.code-copy-btn')) return;
+        if (pre.querySelector('.code-header')) return;
         const lang = pre.querySelector('code')?.className?.match(/language-(\S+)/)?.[1] || '';
         const header = document.createElement('div');
         header.className = 'code-header';
