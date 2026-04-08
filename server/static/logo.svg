@@ -6,12 +6,12 @@
     </style>
   </defs>
 
-  <!-- Central solid black hexagon (grounding, tech, strength) -->
-  <polygon points="50,12 80,35 80,65 50,88 20,65 20,35" class="black-fill"/>
+  <!-- Outer black diamond (brutalist anchor) -->
+  <polygon points="50,5 95,50 50,95 5,50" class="black-fill"/>
 
-  <!-- Teal diagonal slash: precision, forward motion, AI -->
-  <polygon points="50,28 72,50 50,72 28,50" class="teal-fill"/>
+  <!-- Teal accent: thin diamond-shaped border/cutout between outer and inner -->
+  <polygon points="50,16 84,50 50,84 16,50" class="teal-fill"/>
 
-  <!-- Refined teal core dot for balance -->
-  <circle cx="50" cy="50" r="4" fill="#FFFFFF"/>
+  <!-- Inner black diamond (sharp core, same shape as outer) -->
+  <polygon points="50,24 76,50 50,76 24,50" class="black-fill"/>
 </svg>
