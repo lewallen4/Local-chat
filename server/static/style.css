@@ -572,14 +572,14 @@ body {
     color: var(--text-primary);
     font-family: var(--font-ui);
     font-size: 0.9rem;
-    line-height: 1.8;
+    line-height: 2;
     resize: none;
-    min-height: 40px;
+    min-height: 44px;
     max-height: 160px;
     overflow-y: auto;
     scrollbar-width: none;
     vertical-align: top;
-    padding: 2px 0;
+    padding: 4px 0 6px 0;
     align-self: stretch;
 }
 
