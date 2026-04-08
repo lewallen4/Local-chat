@@ -72,14 +72,6 @@ function renderMarkdown(raw) {
         }
     );
 
-    // Strip any other XML-ish tags the model might emit (but not HTML we just created)
-    // Leave our <details>, <summary>, <div> alone
-    text = text.replace(/<\/?(?!details|summary|div|\/details|\/summary|\/div)[a-z_][a-z0-9_-]*\b[^>]*>/gi, (match) => {
-        // Keep our think-block elements
-        if (match.includes('think-block') || match.includes('think-body')) return match;
-        return escHtml(match);
-    });
-
     if (typeof marked !== 'undefined') {
         try { return marked.parse(text); } catch {}
     }
