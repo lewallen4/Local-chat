@@ -20,22 +20,73 @@ except ImportError as e:
     print(f"❌ transformers not found: {e}")
 
 
-# ── Stop sequences ──────────────────────────────────────────────────
-STOP_SEQUENCES = [
-    "\nUSER:",
-    "\nUser:",
-    "\nuser:",
-    "\nHuman:",
-    "\nHUMAN:",
-    "\nhuman:",
-    "\n### Human",
-    "\n### User",
-    "\n[INST]",
-    "\n<|user|>",
-    "\n<human>",
-    "User:",
-    "Human:",
-]
+# ── Per-architecture stop sequences ────────────────────────────────
+# Keys are matched against the model's architecture metadata from GGUF.
+# The "_default" key is the fallback for anything unrecognized.
+
+STOP_MAP = {
+    "gemma4": [
+        "<turn|>",
+        "<|turn>user",
+    ],
+    "gemma": [
+        "<end_of_turn>",
+        "<start_of_turn>user",
+    ],
+    "llama": [
+        "\nUSER:", "\nUser:", "\nuser:",
+        "\nHuman:", "\nHUMAN:",
+        "\n### Human", "\n### User",
+        "\n[INST]", "\n<|user|>",
+        "User:", "Human:",
+    ],
+    "granite": [
+        "\nUSER:", "\nUser:",
+        "\nHuman:", "User:", "Human:",
+        "<|end_of_text|>",
+    ],
+    "mistral": [
+        "\n[INST]",
+        "</s>",
+    ],
+    "_default": [
+        "\nUSER:", "\nUser:", "\nuser:",
+        "\nHuman:", "\nHUMAN:", "\nhuman:",
+        "\n### Human", "\n### User",
+        "\n[INST]", "\n<|user|>", "\n<human>",
+        "User:", "Human:",
+    ],
+}
+
+
+def _detect_stop_sequences(model) -> tuple:
+    """
+    Read the GGUF metadata to determine model architecture,
+    then return (arch_name, stop_sequences).
+    """
+    arch = "unknown"
+    try:
+        # llama-cpp-python exposes metadata as model.metadata
+        meta = getattr(model, "metadata", {}) or {}
+
+        # Try general.architecture first
+        arch_raw = meta.get("general.architecture", "")
+        if not arch_raw:
+            # Fall back to model description or name
+            arch_raw = meta.get("general.name", "")
+
+        arch = arch_raw.lower().strip()
+    except Exception as e:
+        print(f"  ⚠ Could not read model metadata: {e}")
+
+    # Match against known architectures (check gemma4 before gemma)
+    for key in ["gemma4", "gemma", "granite", "llama", "mistral"]:
+        if key in arch:
+            print(f"  → Detected architecture: {arch} → using '{key}' stop sequences")
+            return key, STOP_MAP[key]
+
+    print(f"  → Architecture '{arch}' not recognized → using default stop sequences")
+    return arch, STOP_MAP["_default"]
 
 
 class ModelLoader:
@@ -44,6 +95,8 @@ class ModelLoader:
         self.model      = None
         self.tokenizer  = None
         self.backend    = None
+        self.arch       = "unknown"
+        self.stop_sequences = STOP_MAP["_default"]
         self.load_model()
 
     def load_model(self):
@@ -63,6 +116,10 @@ class ModelLoader:
                     embedding=True,
                 )
                 self.backend = "llama.cpp"
+
+                # Auto-detect architecture and stop sequences
+                self.arch, self.stop_sequences = _detect_stop_sequences(self.model)
+
                 print("✅ Model loaded with llama.cpp")
                 return
             except Exception as e:
@@ -97,10 +154,10 @@ class ModelLoader:
                 result = self.model(
                     prompt,
                     max_tokens=max_tokens,
-                    temperature=0.3,    # lower temp = more factual summary
+                    temperature=0.3,
                     top_p=0.9,
                     repeat_penalty=1.1,
-                    stop=STOP_SEQUENCES + ["###", "---"],
+                    stop=self.stop_sequences + ["###", "---"],
                     echo=False,
                     stream=False,
                 )
@@ -110,7 +167,6 @@ class ModelLoader:
                 return ""
 
         elif self.backend == "transformers":
-            # Minimal transformers path — not heavily used
             return ""
 
         return ""
@@ -121,7 +177,6 @@ class ModelLoader:
         Uses stop sequences that won't collide with transcript content
         (the transcript uses 'Person:' / 'AI:' labels, not 'User:' / 'Human:').
         """
-        # Stop sequences safe for summarization — won't fire on transcript content
         summary_stops = ["---", "###", "\n\n\n", "Person:", "AI:", "Transcript:"]
 
         if self.backend == "llama.cpp":
@@ -175,13 +230,13 @@ class ModelLoader:
                     temperature=temperature,
                     top_p=0.95,
                     repeat_penalty=1.1,
-                    stop=STOP_SEQUENCES,
+                    stop=self.stop_sequences,
                     echo=False,
                     stream=True,
                 )
                 for chunk in stream:
                     text = chunk["choices"][0]["text"]
-                    for stop in STOP_SEQUENCES:
+                    for stop in self.stop_sequences:
                         if stop.strip() in text:
                             before = text[:text.find(stop.strip())]
                             if before:
