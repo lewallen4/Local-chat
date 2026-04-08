@@ -570,9 +570,10 @@ async def delete_fact(user_id: str, request: Request):
     fact = data.get("fact", "").strip()
     if not fact:
         raise HTTPException(status_code=400, detail="Fact cannot be empty")
+    if fact.startswith("User ID:"):
+        raise HTTPException(status_code=403, detail="Cannot remove the User ID fact")
 
     sm = SessionManager(user_id)
-    memory = sm.load_memory()
 
     # Find and remove the matching line from FACTS section
     # The fact is stored as "- {fact}" in memory.md
