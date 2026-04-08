@@ -402,6 +402,30 @@ body {
     margin-bottom: 4px;
 }
 
+.welcome-icon.loading-spin {
+    animation: gentle-spin 2.5s ease-in-out infinite;
+    box-shadow: 0 0 50px rgba(46,125,209,0.3);
+    border-color: var(--blue-core);
+}
+
+@keyframes gentle-spin {
+    0%   { transform: rotate(0deg) scale(1); }
+    50%  { transform: rotate(180deg) scale(1.05); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+
+.loading-sub {
+    font-family: var(--font-mono);
+    font-size: 0.75rem !important;
+    color: var(--blue-bright) !important;
+    animation: loading-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes loading-pulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+}
+
 .welcome-screen h2 {
     font-family: var(--font-display);
     font-size: 1.4rem;
