@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 200" width="100" height="200">
   <defs>
     <style>
       .black-fill { fill: #000000; }
@@ -6,12 +6,13 @@
     </style>
   </defs>
 
-  <!-- Outer black diamond (brutalist anchor) -->
-  <polygon points="50,5 95,50 50,95 5,50" class="black-fill"/>
+  <!-- Outer black pentagon: tall, sharp, brutalist -->
+  <!-- Top point, then right side, bottom right, bottom left, left side -->
+  <polygon points="50,8 80,40 72,192 28,192 20,40" class="black-fill"/>
 
-  <!-- Teal accent: thin diamond-shaped border/cutout between outer and inner -->
-  <polygon points="50,16 84,50 50,84 16,50" class="teal-fill"/>
+  <!-- Teal diamond nested inside the pentagon -->
+  <polygon points="50,48 68,100 50,152 32,100" class="teal-fill"/>
 
-  <!-- Inner black diamond (sharp core, same shape as outer) -->
-  <polygon points="50,24 76,50 50,76 24,50" class="black-fill"/>
+  <!-- Core: tiny black pentagon (same shape as outer) -->
+  <polygon points="50,88 56,98 54,108 46,108 44,98" class="black-fill"/>
 </svg>
