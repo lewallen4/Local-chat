@@ -375,7 +375,7 @@ async def chat(session_id: str, request: Request):
     if knowledge.ready:
         kb_context = knowledge.get_context(user_message)
 
-    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context)
+    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch)
 
     # Apply per-user temperature setting
     user_settings = _load_settings(session["user_id"])
@@ -395,9 +395,16 @@ async def chat(session_id: str, request: Request):
 
         finally:
             if full_response.strip():
+                # Store the full response for display
+                stored_content = full_response.strip()
+                # For Gemma 4, strip thinking blocks from history
+                # so they don't get fed back into future prompts
+                if model_loader.arch == "gemma4":
+                    stored_content = re.sub(r"<\|channel>thought[\s\S]*?<channel\|>", "", stored_content).strip()
+                    stored_content = re.sub(r"<think>[\s\S]*?</think>", "", stored_content).strip()
                 assistant_msg = {
                     "role": "assistant",
-                    "content": full_response.strip(),
+                    "content": stored_content,
                     "timestamp": datetime.now().isoformat(),
                 }
                 session["messages"].append(assistant_msg)
@@ -588,7 +595,7 @@ async def debug_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     session = active_sessions[session_id]
     sm: SessionManager = session["session_manager"]
-    context = sm.prepare_context(session["messages"], session["context_memory"])
+    context = sm.prepare_context(session["messages"], session["context_memory"], arch=model_loader.arch)
     return JSONResponse({
         "user_id": session["user_id"],
         "message_count": len(session["messages"]),
