@@ -960,9 +960,15 @@ function initSettings() {
                     lines.forEach(line => {
                         const factText = line.slice(2); // remove "- " prefix
                         const row = document.createElement('div');
-                        row.className = 'settings-fact-item-row';
-                        row.innerHTML = `<span class="settings-fact-text">${escHtml(line)}</span><button class="settings-fact-delete" title="Remove fact">✕</button>`;
-                        row.querySelector('.settings-fact-delete').addEventListener('click', () => deleteFact(factText));
+                        // Don't allow deletion of the User ID fact
+                        if (factText.startsWith('User ID:')) {
+                            row.className = 'settings-fact-item-row locked';
+                            row.innerHTML = `<span class="settings-fact-text">${escHtml(line)}</span><span class="settings-fact-lock" title="System fact — cannot be removed">🔒</span>`;
+                        } else {
+                            row.className = 'settings-fact-item-row';
+                            row.innerHTML = `<span class="settings-fact-text">${escHtml(line)}</span><button class="settings-fact-delete" title="Remove fact">✕</button>`;
+                            row.querySelector('.settings-fact-delete').addEventListener('click', () => deleteFact(factText));
+                        }
                         factList.appendChild(row);
                     });
                     return;
