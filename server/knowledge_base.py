@@ -236,17 +236,21 @@ class KnowledgeBase:
             print(f"  ✗ Knowledge directory not found: {src}")
             return 0
 
-        # Collect all documents
+        # Collect all documents (recursive — subdirectories supported)
         documents = []
-        for f in sorted(src.iterdir()):
+        for f in sorted(src.rglob("*")):
+            if not f.is_file():
+                continue
+            # Show path relative to knowledge dir for clarity
+            rel = f.relative_to(src)
             if f.suffix.lower() == ".xml":
-                print(f"  📄 Parsing XML: {f.name}")
+                print(f"  📄 Parsing XML: {rel}")
                 documents.extend(parse_confluence_xml(f))
             elif f.suffix.lower() in (".md", ".txt"):
-                print(f"  📄 Reading: {f.name}")
+                print(f"  📄 Reading: {rel}")
                 documents.extend(read_text_file(f))
             else:
-                print(f"  ⊘ Skipping: {f.name}")
+                print(f"  ⊘ Skipping: {rel}")
 
         if not documents:
             print("  ✗ No documents found to ingest")

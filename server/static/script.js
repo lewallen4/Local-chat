@@ -755,11 +755,135 @@ function setupEventListeners() {
     newChatBtn.addEventListener('click', switchToNewSession);
     sidebarToggle.addEventListener('click', toggleSidebar);
     initMemoryToggle();
+    initSettings();
 
     document.addEventListener('keydown', e => {
         if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); switchToNewSession(); }
         if ((e.metaKey || e.ctrlKey) && e.key === 'b') { e.preventDefault(); toggleSidebar(); }
     });
+}
+
+// ── Settings panel ────────────────────────────────────────────────────
+function initSettings() {
+    const settingsToggle = $('settings-toggle');
+    const settingsOverlay = $('settings-overlay');
+    const settingsClose = $('settings-close');
+    const tempSlider = $('temp-slider');
+    const tempValue = $('temp-value');
+    const factInput = $('fact-input');
+    const factSubmit = $('fact-submit');
+    const factFeedback = $('fact-feedback');
+    const factList = $('fact-list');
+
+    if (!settingsToggle || !settingsOverlay) return;
+
+    // Open / close
+    settingsToggle.addEventListener('click', () => {
+        settingsOverlay.classList.toggle('hidden');
+        if (!settingsOverlay.classList.contains('hidden')) {
+            loadSettings();
+            loadFacts();
+        }
+    });
+    settingsClose.addEventListener('click', () => {
+        settingsOverlay.classList.add('hidden');
+    });
+    settingsOverlay.addEventListener('click', e => {
+        if (e.target === settingsOverlay) settingsOverlay.classList.add('hidden');
+    });
+
+    // Temperature slider
+    tempSlider.addEventListener('input', () => {
+        tempValue.textContent = parseFloat(tempSlider.value).toFixed(2);
+    });
+    tempSlider.addEventListener('change', () => {
+        saveTemperature(parseFloat(tempSlider.value));
+    });
+
+    // Fact submission
+    factSubmit.addEventListener('click', submitFact);
+    factInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') submitFact();
+    });
+
+    async function loadSettings() {
+        if (!currentUserId) return;
+        try {
+            const res = await fetch(`/api/user/${encodeURIComponent(currentUserId)}/settings`);
+            const data = await res.json();
+            const temp = data.temperature ?? 0.7;
+            tempSlider.value = temp;
+            tempValue.textContent = parseFloat(temp).toFixed(2);
+        } catch {}
+    }
+
+    async function saveTemperature(temp) {
+        if (!currentUserId) return;
+        try {
+            await fetch(`/api/user/${encodeURIComponent(currentUserId)}/settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ temperature: temp }),
+            });
+        } catch {}
+    }
+
+    async function submitFact() {
+        const text = factInput.value.trim();
+        if (!text || !currentUserId) return;
+
+        factSubmit.disabled = true;
+        factFeedback.textContent = '';
+
+        try {
+            const res = await fetch(`/api/user/${encodeURIComponent(currentUserId)}/facts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fact: text }),
+            });
+            if (res.ok) {
+                factInput.value = '';
+                factFeedback.textContent = 'Saved.';
+                factFeedback.className = 'settings-fact-feedback ok';
+                loadFacts();
+                loadMemory();
+            } else {
+                const err = await res.json();
+                factFeedback.textContent = err.detail || 'Error';
+                factFeedback.className = 'settings-fact-feedback error';
+            }
+        } catch {
+            factFeedback.textContent = 'Could not save.';
+            factFeedback.className = 'settings-fact-feedback error';
+        }
+        factSubmit.disabled = false;
+        setTimeout(() => { factFeedback.textContent = ''; }, 3000);
+    }
+
+    async function loadFacts() {
+        if (!currentUserId || !factList) return;
+        try {
+            const res = await fetch(`/api/memory?user_id=${encodeURIComponent(currentUserId)}`);
+            const data = await res.json();
+            const memory = data.memory || '';
+
+            // Extract FACTS section
+            const factsMatch = memory.match(/## FACTS\n([\s\S]*?)(?=\n## |$)/);
+            if (factsMatch) {
+                const lines = factsMatch[1].split('\n')
+                    .map(l => l.trim())
+                    .filter(l => l.startsWith('- '));
+                if (lines.length > 0) {
+                    factList.innerHTML = '<div class="settings-fact-title">Current facts:</div>' +
+                        lines.map(l => `<div class="settings-fact-item">${escHtml(l)}</div>`).join('');
+                    return;
+                }
+            }
+            factList.innerHTML = '<div class="settings-fact-item dim">No facts saved yet.</div>';
+        } catch {
+            factList.innerHTML = '';
+        }
+    }
 }
 
 // ── Page unload ───────────────────────────────────────────────────────

@@ -13,8 +13,9 @@ Memory file structure (memory.md):
   Persistent user/project facts. Manually editable. Never auto-overwritten.
 
   ## RECENT SESSIONS
-  Rolling log of the last MAX_SESSIONS sessions, newest at top.
-  Auto-managed — oldest entry trimmed when cap exceeded.
+  Rolling log of recent session summaries, newest at top.
+  Auto-managed — oldest entries trimmed after 10 in memory.md.
+  Session files beyond 20 are archived to cold_session_storage/.
 """
 
 import json
@@ -26,12 +27,13 @@ from typing import List, Dict, Any, Optional
 import hashlib
 
 
-MAX_SESSIONS = 100
+MAX_HOT_SESSIONS = 20     # session files kept in active directory
+MAX_MEMORY_ENTRIES = 10   # summary entries kept in memory.md for prompt injection
+COLD_STORAGE_ROOT = Path("cold_session_storage")
 
 SYSTEM_PROMPT_PATH = Path("models/system_prompt.txt")
 DEFAULT_MEMORY_PATH = Path("models/default_memory.md")
 USERS_DIR = Path("users")
-COLD_STORAGE_DIR_NAME = "cold_session_storage"
 
 SYSTEM_PROMPT_FALLBACK = (
     "You are a helpful AI assistant running locally on the user's machine.\n"
@@ -233,20 +235,20 @@ class SessionManager:
         # Sort by last accessed, newest first
         entries.sort(key=lambda e: e["_sort_key"], reverse=True)
 
-        # Enforce 100-session cap — archive overflow to cold storage
-        if len(entries) > MAX_SESSIONS:
-            cold_dir = self.sessions_dir.parent / COLD_STORAGE_DIR_NAME
-            cold_dir.mkdir(exist_ok=True)
-            overflow = entries[MAX_SESSIONS:]
+        # Archive sessions beyond the hot cap to cold storage
+        if len(entries) > MAX_HOT_SESSIONS:
+            cold_dir = COLD_STORAGE_ROOT / self.user_id / "sessions"
+            cold_dir.mkdir(parents=True, exist_ok=True)
+            overflow = entries[MAX_HOT_SESSIONS:]
             for entry in overflow:
                 src = entry["_path"]
                 dst = cold_dir / src.name
                 try:
                     shutil.move(str(src), str(dst))
-                    print(f"  ❄ Archived {src.name} to cold storage")
+                    print(f"  ❄ Archived {src.name} → cold_session_storage/{self.user_id}/sessions/")
                 except Exception as e:
                     print(f"  ✗ Cold archive failed for {src.name}: {e}")
-            entries = entries[:MAX_SESSIONS]
+            entries = entries[:MAX_HOT_SESSIONS]
 
         # Strip internal fields before returning
         for e in entries:
@@ -310,8 +312,8 @@ class SessionManager:
             else:
                 preamble += e
 
-        if len(real_entries) > MAX_SESSIONS:
-            real_entries = real_entries[:MAX_SESSIONS]
+        if len(real_entries) > MAX_MEMORY_ENTRIES:
+            real_entries = real_entries[:MAX_MEMORY_ENTRIES]
 
         trimmed = header_part + preamble + "".join(real_entries)
         self.memory_file.write_text(trimmed, encoding="utf-8")

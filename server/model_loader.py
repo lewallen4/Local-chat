@@ -165,13 +165,14 @@ class ModelLoader:
 
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         prompt = context.get("prompt", "")
+        temperature = context.get("temperature", 0.7)
 
         if self.backend == "llama.cpp":
             try:
                 stream = self.model(
                     prompt,
                     max_tokens=512,
-                    temperature=0.0,
+                    temperature=temperature,
                     top_p=0.95,
                     repeat_penalty=1.1,
                     stop=STOP_SEQUENCES,

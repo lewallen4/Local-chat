@@ -377,6 +377,10 @@ async def chat(session_id: str, request: Request):
 
     full_context = sm.prepare_context(msgs, session["context_memory"], kb_context)
 
+    # Apply per-user temperature setting
+    user_settings = _load_settings(session["user_id"])
+    full_context["temperature"] = user_settings.get("temperature", 0.7)
+
     async def generate():
         full_response = ""
         try:
@@ -439,6 +443,102 @@ async def get_memory(user_id: str = ""):
         return JSONResponse({"memory": ""})
     sm = SessionManager(user_id)
     return JSONResponse({"memory": sm.load_memory()})
+
+
+# ── Per-user settings ──────────────────────────────────────────────
+
+SETTINGS_DEFAULTS = {"temperature": 0.7}
+
+
+def _settings_path(user_id: str) -> Path:
+    return Path("users") / user_id / "settings.json"
+
+
+def _load_settings(user_id: str) -> dict:
+    p = _settings_path(user_id)
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return dict(SETTINGS_DEFAULTS)
+
+
+def _save_settings(user_id: str, settings: dict) -> None:
+    p = _settings_path(user_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+
+
+@app.get("/api/user/{user_id}/settings")
+async def get_settings(user_id: str):
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    return JSONResponse(_load_settings(user_id))
+
+
+@app.post("/api/user/{user_id}/settings")
+async def save_settings(user_id: str, request: Request):
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    settings = _load_settings(user_id)
+
+    # Validate and apply temperature
+    if "temperature" in data:
+        temp = data["temperature"]
+        try:
+            temp = float(temp)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Temperature must be a number")
+        if temp < 0.0 or temp > 1.0:
+            raise HTTPException(status_code=400, detail="Temperature must be between 0.0 and 1.0")
+        settings["temperature"] = round(temp, 2)
+
+    _save_settings(user_id, settings)
+    return JSONResponse(settings)
+
+
+@app.post("/api/user/{user_id}/facts")
+async def add_fact(user_id: str, request: Request):
+    """Add a fact to the FACTS section of the user's memory.md."""
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    fact = data.get("fact", "").strip()
+    if not fact:
+        raise HTTPException(status_code=400, detail="Fact cannot be empty")
+    if len(fact) > 100:
+        raise HTTPException(status_code=400, detail="Fact must be 100 characters or less")
+
+    sm = SessionManager(user_id)
+    memory = sm.load_memory()
+
+    # Insert the fact as a bullet under ## FACTS
+    marker = "## FACTS"
+    if marker in memory:
+        idx = memory.index(marker) + len(marker)
+        # Find the end of the FACTS section (next ## header or end)
+        next_section = memory.find("\n## ", idx)
+        if next_section == -1:
+            next_section = len(memory)
+        # Insert before the next section
+        insert_at = next_section
+        fact_line = f"\n- {fact}"
+        memory = memory[:insert_at] + fact_line + memory[insert_at:]
+    else:
+        memory += f"\n## FACTS\n- {fact}\n"
+
+    sm.memory_file.write_text(memory, encoding="utf-8")
+    return JSONResponse({"message": "Fact added", "fact": fact})
 
 
 @app.get("/api/knowledge/status")
