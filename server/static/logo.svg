@@ -1,33 +1,29 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
   <defs>
     <style>
+      .teal-fill { fill: #5BCEFA; }
+      .black-stroke { stroke: #000000; fill: none; stroke-width: 3; stroke-linecap: round; }
       .black-fill { fill: #000000; }
-      .teal-stroke { stroke: #5BCEFA; fill: none; stroke-width: 3; stroke-linecap: round; }
     </style>
   </defs>
 
-  <!-- Layer 1: Top horizontal bar (stack) -->
-  <rect x="10" y="18" width="80" height="16" class="black-fill"/>
+  <!-- TEAL BASE LAYER (unshifted) -->
+  <!-- Horizontal bars -->
+  <rect x="10" y="18" width="80" height="16" class="teal-fill"/>
+  <rect x="10" y="42" width="80" height="16" class="teal-fill"/>
+  <rect x="10" y="66" width="80" height="16" class="teal-fill"/>
 
-  <!-- Layer 2: Middle horizontal bar -->
-  <rect x="10" y="42" width="80" height="16" class="black-fill"/>
-
-  <!-- Layer 3: Bottom horizontal bar -->
-  <rect x="10" y="66" width="80" height="16" class="black-fill"/>
-
-  <!-- Longitude curves (globe meridians) cutting across layers -->
-  <!-- Center vertical meridian -->
-  <line x1="50" y1="8" x2="50" y2="92" class="teal-stroke" stroke-width="3.5"/>
-
-  <!-- Left curved meridian -->
-  <path d="M 30,8 Q 20,50 30,92" class="teal-stroke"/>
-
-  <!-- Right curved meridian -->
-  <path d="M 70,8 Q 80,50 70,92" class="teal-stroke"/>
-
-  <!-- Horizontal equator line (latitude) in teal -->
-  <line x1="8" y1="50" x2="92" y2="50" class="teal-stroke" stroke-width="2.5" stroke-dasharray="4,3"/>
-
-  <!-- Central teal dot at intersection -->
-  <circle cx="50" cy="50" r="3" fill="#5BCEFA"/>
+  <!-- BLACK OFFSET LAYER (shifted +3px X, +3px Y) -->
+  <g transform="translate(3, 3)">
+    <!-- Longitude curves -->
+    <line x1="50" y1="8" x2="50" y2="92" class="black-stroke" stroke-width="3.5"/>
+    <path d="M 30,8 Q 20,50 30,92" class="black-stroke"/>
+    <path d="M 70,8 Q 80,50 70,92" class="black-stroke"/>
+    
+    <!-- Dashed equator -->
+    <line x1="8" y1="50" x2="92" y2="50" class="black-stroke" stroke-width="2.5" stroke-dasharray="4,3"/>
+    
+    <!-- Central dot -->
+    <circle cx="50" cy="50" r="3" class="black-fill"/>
+  </g>
 </svg>
