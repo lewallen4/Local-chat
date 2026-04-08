@@ -64,6 +64,7 @@ body {
     color: var(--text-primary);
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+    line-height: 1.9;
 }
 
 /* ── App Shell ─────────────────────────────────────────────── */
@@ -488,10 +489,10 @@ body {
 }
 
 .bubble-content {
-    padding: 12px 16px;
+    padding: 12px 16px 14px 16px;
     border-radius: var(--radius-lg);
     font-size: 0.9rem;
-    line-height: 1.7;
+    line-height: 2;
     word-break: break-word;
     white-space: pre-wrap;
 }
