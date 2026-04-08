@@ -142,16 +142,8 @@ class SessionManager:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 
-    def prepare_context(self, messages: List[Dict], global_memory: str, knowledge_context: str = "") -> Dict[str, Any]:
+    def prepare_context(self, messages: List[Dict], global_memory: str, knowledge_context: str = "", arch: str = "") -> Dict[str, Any]:
         recent = messages[-12:]
-
-        conversation_lines = []
-        for msg in recent:
-            role = "USER" if msg["role"] == "user" else "ASSISTANT"
-            content = msg["content"].strip()
-            conversation_lines.append(f"{role}: {content}")
-
-        conversation_block = "\n".join(conversation_lines)
 
         memory_block = ""
         if global_memory and global_memory.strip():
@@ -159,24 +151,70 @@ class SessionManager:
             if cleaned:
                 if len(cleaned) > MAX_MEMORY_CHARS:
                     cleaned = "…(earlier memory trimmed)\n" + cleaned[-MAX_MEMORY_CHARS:]
-                memory_block = f"CONTEXT FROM PREVIOUS SESSIONS:\n{cleaned}\n\n"
+                memory_block = cleaned
 
         system_prompt = load_system_prompt()
 
-        prompt = (
-            f"{system_prompt}\n\n"
-            f"{knowledge_context}"
-            f"{memory_block}"
-            "CONVERSATION:\n"
-            f"{conversation_block}\n"
-            "ASSISTANT:"
-        )
+        # Build architecture-specific prompt
+        if arch == "gemma4":
+            prompt = self._build_gemma4_prompt(system_prompt, memory_block, knowledge_context, recent)
+        else:
+            prompt = self._build_default_prompt(system_prompt, memory_block, knowledge_context, recent)
 
         return {
             "prompt": prompt,
             "memory_used": bool(global_memory),
             "message_count": len(messages),
         }
+
+    def _build_default_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict]) -> str:
+        """Generic USER: / ASSISTANT: format — works with Granite, Llama, Mistral, etc."""
+        conversation_lines = []
+        for msg in messages:
+            role = "USER" if msg["role"] == "user" else "ASSISTANT"
+            content = msg["content"].strip()
+            conversation_lines.append(f"{role}: {content}")
+
+        conversation_block = "\n".join(conversation_lines)
+
+        mem = ""
+        if memory_block:
+            mem = f"CONTEXT FROM PREVIOUS SESSIONS:\n{memory_block}\n\n"
+
+        return (
+            f"{system_prompt}\n\n"
+            f"{knowledge_context}"
+            f"{mem}"
+            "CONVERSATION:\n"
+            f"{conversation_block}\n"
+            "ASSISTANT:"
+        )
+
+    def _build_gemma4_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict]) -> str:
+        """Gemma 4 chat template using <|turn> / <turn|> markers."""
+        # System turn — include memory and knowledge in the system context
+        system_content = system_prompt
+        if knowledge_context:
+            system_content += "\n\n" + knowledge_context.strip()
+        if memory_block:
+            system_content += "\n\nCONTEXT FROM PREVIOUS SESSIONS:\n" + memory_block
+
+        parts = [f"<|turn>system\n{system_content}<turn|>"]
+
+        # Conversation turns
+        for msg in messages:
+            if msg["role"] == "user":
+                parts.append(f"<|turn>user\n{msg['content'].strip()}<turn|>")
+            else:
+                # Strip any prior think blocks from history per Gemma 4 guidelines
+                content = msg["content"].strip()
+                content = _strip_think_blocks(content)
+                parts.append(f"<|turn>model\n{content}<turn|>")
+
+        # Open the model turn for generation
+        parts.append("<|turn>model")
+
+        return "\n".join(parts)
 
     def save_session_log(self, session_id: str, session_data: Dict) -> None:
         log_file = self.sessions_dir / f"session_{session_id}.json"
@@ -320,6 +358,16 @@ class SessionManager:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> and <|channel>thought...<channel|> blocks from model output.
+    Per Gemma 4 guidelines, prior thinking should not be included in conversation history."""
+    # Gemma 4 style
+    text = re.sub(r"<\|channel>thought[\s\S]*?<channel\|>", "", text)
+    # Generic <think> style
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    return text.strip()
+
 
 def _iso(value) -> str:
     if isinstance(value, datetime):
