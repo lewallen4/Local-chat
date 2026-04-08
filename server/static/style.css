@@ -572,15 +572,15 @@ body {
     color: var(--text-primary);
     font-family: var(--font-ui);
     font-size: 0.9rem;
-    line-height: 1.6;
+    line-height: 1.8;
     resize: none;
-    min-height: 36px;   /* matches button height so single-line feels right */
+    min-height: 40px;
     max-height: 160px;
     overflow-y: auto;
     scrollbar-width: none;
-    vertical-align: top;  /* text starts at top of box, not centered */
-    padding-top: 0;
-    align-self: stretch;  /* fill the wrapper height so entire area is clickable */
+    vertical-align: top;
+    padding: 2px 0;
+    align-self: stretch;
 }
 
 #user-input::-webkit-scrollbar { display: none; }
