@@ -295,9 +295,7 @@ async function loadMemory() {
         const res  = await fetch(`/api/memory?user_id=${encodeURIComponent(currentUserId)}`);
         const data = await res.json();
         const text = (data.memory || '').trim();
-        memoryPreview.textContent = text
-            ? (text.length > 800 ? '…' + text.slice(-800) : text)
-            : 'No memory yet — it builds as you chat.';
+        memoryPreview.textContent = text || 'No memory yet — it builds as you chat.';
     } catch {
         memoryPreview.textContent = 'Memory unavailable.';
     }
