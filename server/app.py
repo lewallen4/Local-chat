@@ -375,11 +375,14 @@ async def chat(session_id: str, request: Request):
     if knowledge.ready:
         kb_context = knowledge.get_context(user_message)
 
-    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch)
-
-    # Apply per-user temperature setting
+    # Load per-user settings
     user_settings = _load_settings(session["user_id"])
+
+    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch, thinking=user_settings.get("thinking_enabled", False))
+
+    # Apply per-user settings to context
     full_context["temperature"] = user_settings.get("temperature", 0.7)
+    full_context["show_thoughts"] = user_settings.get("show_thoughts", True)
 
     async def generate():
         full_response = ""
@@ -454,7 +457,7 @@ async def get_memory(user_id: str = ""):
 
 # ── Per-user settings ──────────────────────────────────────────────
 
-SETTINGS_DEFAULTS = {"temperature": 0.7}
+SETTINGS_DEFAULTS = {"temperature": 0.7, "thinking_enabled": False, "show_thoughts": True}
 
 
 def _settings_path(user_id: str) -> Path:
@@ -505,6 +508,12 @@ async def save_settings(user_id: str, request: Request):
         if temp < 0.0 or temp > 1.0:
             raise HTTPException(status_code=400, detail="Temperature must be between 0.0 and 1.0")
         settings["temperature"] = round(temp, 2)
+
+    # Validate and apply thinking toggles
+    if "thinking_enabled" in data:
+        settings["thinking_enabled"] = bool(data["thinking_enabled"])
+    if "show_thoughts" in data:
+        settings["show_thoughts"] = bool(data["show_thoughts"])
 
     _save_settings(user_id, settings)
     return JSONResponse(settings)
