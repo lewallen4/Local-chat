@@ -1772,6 +1772,17 @@ body {
     background: rgba(240, 94, 94, 0.1);
 }
 
+.settings-fact-lock {
+    font-size: 0.72rem;
+    opacity: 0.4;
+    flex-shrink: 0;
+    padding: 2px 4px;
+}
+
+.settings-fact-item-row.locked .settings-fact-text {
+    color: var(--text-muted);
+}
+
 /* Light theme overrides */
 [data-theme="light"] .settings-panel {
     background: #ffffff;
