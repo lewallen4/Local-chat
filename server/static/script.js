@@ -62,12 +62,27 @@ const welcomeSub        = $('welcome-sub');
 
 /* Turn <think>…</think> blocks into collapsible details, then run marked */
 function renderMarkdown(raw) {
-    // Strip <think> blocks into collapsible sections
+    // Strip Gemma 4 thinking blocks: <|channel>thought...<channel|>
+    // If content exists, make it collapsible; if empty, remove entirely
     let text = raw.replace(
+        /<\|channel>thought\n?([\s\S]*?)(?:<channel\|>|$)/gi,
+        (_, inner) => {
+            const trimmed = inner.trim();
+            if (!trimmed) return '';  // empty thinking block — discard
+            const closed = raw.includes('<channel|>');
+            const escapedInner = escHtml(trimmed);
+            return `<details class="think-block"${closed ? '' : ' open'}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
+        }
+    );
+
+    // Strip generic <think> blocks into collapsible sections
+    text = text.replace(
         /<think>([\s\S]*?)(?:<\/think>|$)/gi,
         (_, inner) => {
+            const trimmed = inner.trim();
+            if (!trimmed) return '';
             const closed = raw.includes('</think>');
-            const escapedInner = escHtml(inner.trim());
+            const escapedInner = escHtml(trimmed);
             return `<details class="think-block"${closed ? '' : ' open'}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
         }
     );
