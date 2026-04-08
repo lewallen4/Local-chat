@@ -330,7 +330,7 @@ if [[ "$KEY" == "9" || "$KEY" == "10" ]]; then
 fi
 
 if [[ "$KEY" == "11" ]]; then
-    warn "Unsloth Dynamic quant (UD-Q4_K_XL) — best quality-per-bit for Gemma 4."
+    warn "mradermacher made this, definitely the more economical option..."
     warn "Gemma 4 31B uses 256K context. At 8K context: ~22 GB VRAM with llama.cpp."
     gap
 fi
