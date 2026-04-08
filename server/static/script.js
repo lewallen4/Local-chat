@@ -347,8 +347,33 @@ async function switchToNewSession() {
     if (isGenerating) stopGeneration();
 
     markAllSessionsInactive();
+
+    // Show loading state immediately
+    chatMessages.innerHTML = `
+        <div class="welcome-screen">
+            <div class="welcome-icon loading-spin">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
+                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h2>Preparing session…</h2>
+            <p class="loading-sub">Building memory and context</p>
+        </div>`;
+
+    chatTitle.textContent        = 'New Session';
+    sessionIdDisplay.textContent = '—';
+    userInput.disabled  = true;
+    sendButton.disabled = true;
+
     await endCurrentSession();
     exchangeCount = 0;
+    updateCount();
+
+    await loadMemory();
+    await startSession();
+
+    // Replace loading with ready state
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon">
@@ -365,15 +390,6 @@ async function switchToNewSession() {
                 <span class="hint">Esc Clear</span>
             </div>
         </div>`;
-
-    chatTitle.textContent        = 'New Session';
-    sessionIdDisplay.textContent = '—';
-    updateCount();
-    userInput.disabled  = true;
-    sendButton.disabled = true;
-
-    await loadMemory();
-    await startSession();
 }
 
 // ── Load a past session and continue it live ─────────────────────────
