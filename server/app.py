@@ -557,6 +557,42 @@ async def add_fact(user_id: str, request: Request):
     return JSONResponse({"message": "Fact added", "fact": fact})
 
 
+@app.delete("/api/user/{user_id}/facts")
+async def delete_fact(user_id: str, request: Request):
+    """Remove a fact from the FACTS section of the user's memory.md."""
+    if not validate_user_id(user_id):
+        raise HTTPException(status_code=400, detail="Invalid user ID")
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    fact = data.get("fact", "").strip()
+    if not fact:
+        raise HTTPException(status_code=400, detail="Fact cannot be empty")
+
+    sm = SessionManager(user_id)
+    memory = sm.load_memory()
+
+    # Find and remove the matching line from FACTS section
+    # The fact is stored as "- {fact}" in memory.md
+    lines = memory.split("\n")
+    target = f"- {fact}"
+    new_lines = []
+    removed = False
+    for line in lines:
+        if not removed and line.strip() == target:
+            removed = True
+            continue
+        new_lines.append(line)
+
+    if not removed:
+        raise HTTPException(status_code=404, detail="Fact not found")
+
+    sm.memory_file.write_text("\n".join(new_lines), encoding="utf-8")
+    return JSONResponse({"message": "Fact removed", "fact": fact})
+
+
 @app.get("/api/knowledge/status")
 async def knowledge_status():
     """Check whether the knowledge base is loaded and how many chunks it has."""
