@@ -1736,6 +1736,42 @@ body {
     font-style: italic;
 }
 
+.settings-fact-item-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    gap: 8px;
+}
+.settings-fact-item-row + .settings-fact-item-row {
+    border-top: 1px solid var(--border-subtle);
+}
+
+.settings-fact-text {
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-fact-delete {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+    line-height: 1;
+}
+.settings-fact-delete:hover {
+    color: var(--red);
+    background: rgba(240, 94, 94, 0.1);
+}
+
 /* Light theme overrides */
 [data-theme="light"] .settings-panel {
     background: #ffffff;
