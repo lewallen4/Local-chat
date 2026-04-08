@@ -160,11 +160,12 @@ MODEL_LABEL=(
     [8]="IBM Granite 3.3  8B"
     [9]="IBM Granite 4  1B"
     [10]="IBM Granite 4  32B Small"
-    [11]="IBM Granite Guardian 3.2  5B  ★ safety"
-    [12]="Gemma 4  31B  (UD-Q4_K_XL)  ★ recommended"
-    [13]="Gemma 4  31B  (Q8_0)"
-    [14]="Gemma 4  31B  (Q4_K_M)"
-    [15]="Gemma 4  31B  (Q6_K)"
+    [11]="Gemma 4  31B  (UD-Q4_K_XL)  ★ recommended"
+    [12]="Gemma 4  31B  (Q4_K_M)"
+    [13]="DeepSeek R1 Distill  14B  (Qwen)"
+    [14]="DeepSeek R1 Distill  32B  (Qwen)"
+    [15]="DeepSeek V3.2  671B  (UD-Q4_K_XL)  ★ multi-file"
+    [16]="DeepSeek R1  671B  (Q4_K_M)  ★ multi-file"
 )
 
 MODEL_SIZE=(
@@ -178,11 +179,12 @@ MODEL_SIZE=(
     [8]="4.6 GB"
     [9]="0.9 GB"
     [10]="19.5 GB"
-    [11]="3.1 GB"
-    [12]="18.8 GB"
-    [13]="32.6 GB"
-    [14]="18.3 GB"
-    [15]="25.2 GB"
+    [11]="18.8 GB"
+    [12]="18.3 GB"
+    [13]="9.0 GB"
+    [14]="19.9 GB"
+    [15]="~400 GB (8 parts)"
+    [16]="~404 GB (9 parts)"
 )
 
 MODEL_RAM=(
@@ -196,11 +198,12 @@ MODEL_RAM=(
     [8]="8 GB"
     [9]="4 GB"
     [10]="24 GB"
-    [11]="8 GB"
+    [11]="24 GB"
     [12]="24 GB"
-    [13]="40 GB"
+    [13]="12 GB"
     [14]="24 GB"
-    [15]="32 GB"
+    [15]="256+ GB"
+    [16]="256+ GB"
 )
 
 MODEL_URL=(
@@ -214,11 +217,12 @@ MODEL_URL=(
     [8]="https://huggingface.co/ibm-granite/granite-3.3-8b-instruct-GGUF/resolve/main/granite-3.3-8b-instruct-Q4_K_M.gguf"
     [9]="https://huggingface.co/ibm-granite/granite-4.0-h-1b-GGUF/resolve/main/granite-4.0-h-1b-Q4_K_M.gguf"
     [10]="https://huggingface.co/ibm-granite/granite-4.0-h-small-GGUF/resolve/main/granite-4.0-h-small-Q4_K_M.gguf"
-    [11]="https://huggingface.co/ibm-research/granite-guardian-3.2-5b-GGUF/resolve/main/granite-guardian-3.2-5b-Q4_K_M.gguf"
-    [12]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q4_K_XL.gguf"
-    [13]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q8_0.gguf"
-    [14]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
-    [15]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q6_K.gguf"
+    [11]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q4_K_XL.gguf"
+    [12]="https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-Q4_K_M.gguf"
+    [13]="https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-14B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"
+    [14]="https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf"
+    [15]="MULTI_FILE"
+    [16]="MULTI_FILE"
 )
 
 MODEL_OUTPUT=(
@@ -236,7 +240,8 @@ MODEL_OUTPUT=(
     [12]="model.gguf"
     [13]="model.gguf"
     [14]="model.gguf"
-    [15]="model.gguf"
+    [15]="MULTI_FILE"
+    [16]="MULTI_FILE"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -246,7 +251,7 @@ detect_downloader
 clear
 echo ""
 echo -e "${CYAN}${BOLD}╔════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}║      Skye-AI  —  Model Acquisition         ║${RESET}"
+echo -e "${CYAN}${BOLD}║      Skye-AI  —  Model Acquisition        ║${RESET}"
 echo -e "${CYAN}${BOLD}╚════════════════════════════════════════════╝${RESET}"
 echo -e "  ${DIM}Q4_K_M  ·  via ${DOWNLOADER}  ·  → ${MODELS_DIR}${RESET}"
 
@@ -269,14 +274,15 @@ sec "IBM  —  Granite 4  [ibm-granite official]"
 row  9 "${MODEL_LABEL[9]}"  "${MODEL_SIZE[9]}"  "${MODEL_RAM[9]}"
 row 10 "${MODEL_LABEL[10]}" "${MODEL_SIZE[10]}" "${MODEL_RAM[10]}"
 
-sec "IBM  —  Granite Guardian  [ibm-research official]"
-row 11 "${MODEL_LABEL[11]}" "${MODEL_SIZE[11]}" "${MODEL_RAM[11]}"
-
 sec "GOOGLE  —  Gemma 4  [unsloth]"
+row 11 "${MODEL_LABEL[11]}" "${MODEL_SIZE[11]}" "${MODEL_RAM[11]}"
 row 12 "${MODEL_LABEL[12]}" "${MODEL_SIZE[12]}" "${MODEL_RAM[12]}"
+
+sec "DEEPSEEK  [unsloth]"
 row 13 "${MODEL_LABEL[13]}" "${MODEL_SIZE[13]}" "${MODEL_RAM[13]}"
 row 14 "${MODEL_LABEL[14]}" "${MODEL_SIZE[14]}" "${MODEL_RAM[14]}"
 row 15 "${MODEL_LABEL[15]}" "${MODEL_SIZE[15]}" "${MODEL_RAM[15]}"
+row 16 "${MODEL_LABEL[16]}" "${MODEL_SIZE[16]}" "${MODEL_RAM[16]}"
 
 gap
 line
@@ -288,9 +294,9 @@ gap
 
 # ── Validate ───────────────────────────────────────────────────────
 case "$CHOICE" in
-    [1-9]|1[0-5]) ;;
+    [1-9]|1[0-6]) ;;
     q|Q) echo -e "  ${DIM}Exiting.${RESET}\n"; exit 0 ;;
-    *) die "Invalid selection. Enter 1–15 or q." ;;
+    *) die "Invalid selection. Enter 1–16 or q." ;;
 esac
 
 KEY="$CHOICE"
@@ -324,26 +330,40 @@ if [[ "$KEY" == "9" || "$KEY" == "10" ]]; then
 fi
 
 if [[ "$KEY" == "11" ]]; then
-    warn "Guardian is a safety/risk-detection model, not a chat model."
-    warn "It responds Yes/No to classify whether content is harmful."
-    gap
-fi
-
-if [[ "$KEY" == "12" ]]; then
     warn "Unsloth Dynamic quant (UD-Q4_K_XL) — best quality-per-bit for Gemma 4."
     warn "Gemma 4 31B uses 256K context. At 8K context: ~22 GB VRAM with llama.cpp."
     gap
 fi
 
-if [[ "$KEY" == "13" ]]; then
-    warn "Q8_0 is the highest practical quant — needs ~40 GB RAM/VRAM."
-    warn "Gemma 4 31B uses 256K context. Use --ctx-size to limit if needed."
+if [[ "$KEY" == "12" ]]; then
+    warn "Gemma 4 31B uses 256K context. At 8K context: ~22-28 GB VRAM with llama.cpp."
     gap
 fi
 
-if [[ "$KEY" == "14" || "$KEY" == "15" ]]; then
-    warn "Gemma 4 31B uses 256K context. At 8K context: ~22-28 GB VRAM with llama.cpp."
+if [[ "$KEY" == "13" || "$KEY" == "14" ]]; then
+    warn "DeepSeek R1 distilled into Qwen — strong reasoning with <think> blocks."
+    warn "Use temperature 0.5–0.7 (0.6 recommended) to reduce repetition."
     gap
+fi
+
+if [[ "$KEY" == "15" || "$KEY" == "16" ]]; then
+    warn "This is a 671B MoE model split across multiple files (~400 GB total)."
+    warn "Cannot be downloaded with this tool — use huggingface-cli instead:"
+    gap
+    if [[ "$KEY" == "15" ]]; then
+        echo -e "  ${DIM}pip install huggingface_hub${RESET}"
+        echo -e "  ${DIM}huggingface-cli download unsloth/DeepSeek-V3.2-GGUF \\${RESET}"
+        echo -e "  ${DIM}  --include \"UD-Q4_K_XL/*\" --local-dir $MODELS_DIR${RESET}"
+    else
+        echo -e "  ${DIM}pip install huggingface_hub${RESET}"
+        echo -e "  ${DIM}huggingface-cli download unsloth/DeepSeek-R1-GGUF \\${RESET}"
+        echo -e "  ${DIM}  --include \"DeepSeek-R1-Q4_K_M/*\" --local-dir $MODELS_DIR${RESET}"
+    fi
+    gap
+    warn "Requires 256+ GB combined RAM+VRAM. See unsloth.ai for hardware guide."
+    gap
+    echo -e "  ${DIM}Exiting — use the commands above to download.${RESET}\n"
+    exit 0
 fi
 
 if [ -f "$DEST" ]; then
