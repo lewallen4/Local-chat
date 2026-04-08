@@ -956,8 +956,15 @@ function initSettings() {
                     .map(l => l.trim())
                     .filter(l => l.startsWith('- '));
                 if (lines.length > 0) {
-                    factList.innerHTML = '<div class="settings-fact-title">Current facts:</div>' +
-                        lines.map(l => `<div class="settings-fact-item">${escHtml(l)}</div>`).join('');
+                    factList.innerHTML = '<div class="settings-fact-title">Current facts:</div>';
+                    lines.forEach(line => {
+                        const factText = line.slice(2); // remove "- " prefix
+                        const row = document.createElement('div');
+                        row.className = 'settings-fact-item-row';
+                        row.innerHTML = `<span class="settings-fact-text">${escHtml(line)}</span><button class="settings-fact-delete" title="Remove fact">✕</button>`;
+                        row.querySelector('.settings-fact-delete').addEventListener('click', () => deleteFact(factText));
+                        factList.appendChild(row);
+                    });
                     return;
                 }
             }
@@ -965,6 +972,21 @@ function initSettings() {
         } catch {
             factList.innerHTML = '';
         }
+    }
+
+    async function deleteFact(factText) {
+        if (!currentUserId) return;
+        try {
+            const res = await fetch(`/api/user/${encodeURIComponent(currentUserId)}/facts`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ fact: factText }),
+            });
+            if (res.ok) {
+                loadFacts();
+                loadMemory();
+            }
+        } catch {}
     }
 }
 
