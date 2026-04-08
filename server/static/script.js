@@ -486,14 +486,17 @@ async function sendMessage() {
     let fullResponse   = '';
     let stopped        = false;
     let renderPending  = false;
+    let streamingDone  = false;
 
     // Throttled re-render: at most every 80ms during streaming
     function scheduleRender() {
-        if (renderPending) return;
+        if (renderPending || streamingDone) return;
         renderPending = true;
         requestAnimationFrame(() => {
-            contentEl.innerHTML = renderMarkdown(fullResponse);
-            scrollToBottom();
+            if (!streamingDone) {
+                contentEl.innerHTML = renderMarkdown(fullResponse);
+                scrollToBottom();
+            }
             renderPending = false;
         });
     }
@@ -549,7 +552,10 @@ async function sendMessage() {
         activeReader = null;
         contentEl.classList.remove('streaming');
 
-        // Final render with full syntax highlighting
+        // Stop any pending streaming renders from overwriting
+        streamingDone = true;
+
+        // Final render with full syntax highlighting + copy buttons
         contentEl.innerHTML = renderMarkdown(fullResponse);
         highlightCode(contentEl);
 
