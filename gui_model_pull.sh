@@ -251,7 +251,7 @@ detect_downloader
 clear
 echo ""
 echo -e "${CYAN}${BOLD}╔════════════════════════════════════════════╗${RESET}"
-echo -e "${CYAN}${BOLD}║      Skye-AI  —  Model Acquisition        ║${RESET}"
+echo -e "${CYAN}${BOLD}║      Skye-AI  —  Model Acquisition         ║${RESET}"
 echo -e "${CYAN}${BOLD}╚════════════════════════════════════════════╝${RESET}"
 echo -e "  ${DIM}Q4_K_M  ·  via ${DOWNLOADER}  ·  → ${MODELS_DIR}${RESET}"
 
