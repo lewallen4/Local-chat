@@ -62,31 +62,37 @@ const welcomeSub        = $('welcome-sub');
 
 /* Turn <think>…</think> blocks into collapsible details, then run marked */
 function renderMarkdown(raw) {
-    // Strip Gemma 4 thinking blocks: <|channel>thought...<channel|>
-    let text = raw.replace(
+    let text = raw;
+    const hidden = !showThoughts ? ' style="display:none"' : '';
+
+    // Build a think block HTML from captured content
+    function makeThinkBlock(inner, isClosed) {
+        const trimmed = inner.trim();
+        if (!trimmed) return '';
+        const escapedInner = escHtml(trimmed);
+        return `<details class="think-block"${isClosed ? '' : ' open'}${hidden}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
+    }
+
+    // Gemma 4 style: <|channel>thought...<channel|>
+    text = text.replace(
         /<\|channel>thought\n?([\s\S]*?)(?:<channel\|>|$)/gi,
-        (_, inner) => {
-            const trimmed = inner.trim();
-            if (!trimmed) return '';
-            const closed = raw.includes('<channel|>');
-            const hidden = !showThoughts ? ' style="display:none"' : '';
-            const escapedInner = escHtml(trimmed);
-            return `<details class="think-block"${closed ? '' : ' open'}${hidden}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
-        }
+        (_, inner) => makeThinkBlock(inner, raw.includes('<channel|>'))
     );
 
-    // Strip generic <think> blocks into collapsible sections
+    // <thought>...</thought> (Gemma 4 variant)
+    text = text.replace(
+        /<thought>([\s\S]*?)(?:<\/thought>|$)/gi,
+        (_, inner) => makeThinkBlock(inner, raw.includes('</thought>'))
+    );
+
+    // <think>...</think> (generic / DeepSeek / Qwen style)
     text = text.replace(
         /<think>([\s\S]*?)(?:<\/think>|$)/gi,
-        (_, inner) => {
-            const trimmed = inner.trim();
-            if (!trimmed) return '';
-            const closed = raw.includes('</think>');
-            const hidden = !showThoughts ? ' style="display:none"' : '';
-            const escapedInner = escHtml(trimmed);
-            return `<details class="think-block"${closed ? '' : ' open'}${hidden}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
-        }
+        (_, inner) => makeThinkBlock(inner, raw.includes('</think>'))
     );
+
+    // Clean up any stray closing tags the model might leak
+    text = text.replace(/<\/?(thought|think|channel)\|?>/gi, '');
 
     if (typeof marked !== 'undefined') {
         try { return marked.parse(text); } catch {}
