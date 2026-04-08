@@ -63,15 +63,15 @@ const welcomeSub        = $('welcome-sub');
 /* Turn <think>…</think> blocks into collapsible details, then run marked */
 function renderMarkdown(raw) {
     // Strip Gemma 4 thinking blocks: <|channel>thought...<channel|>
-    // If content exists, make it collapsible; if empty, remove entirely
     let text = raw.replace(
         /<\|channel>thought\n?([\s\S]*?)(?:<channel\|>|$)/gi,
         (_, inner) => {
             const trimmed = inner.trim();
-            if (!trimmed) return '';  // empty thinking block — discard
+            if (!trimmed) return '';
             const closed = raw.includes('<channel|>');
+            const hidden = !showThoughts ? ' style="display:none"' : '';
             const escapedInner = escHtml(trimmed);
-            return `<details class="think-block"${closed ? '' : ' open'}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
+            return `<details class="think-block"${closed ? '' : ' open'}${hidden}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
         }
     );
 
@@ -82,8 +82,9 @@ function renderMarkdown(raw) {
             const trimmed = inner.trim();
             if (!trimmed) return '';
             const closed = raw.includes('</think>');
+            const hidden = !showThoughts ? ' style="display:none"' : '';
             const escapedInner = escHtml(trimmed);
-            return `<details class="think-block"${closed ? '' : ' open'}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
+            return `<details class="think-block"${closed ? '' : ' open'}${hidden}><summary>💭 Thinking…</summary><div class="think-body">${escapedInner}</div></details>`;
         }
     );
 
@@ -818,12 +819,16 @@ function setupEventListeners() {
 }
 
 // ── Settings panel ────────────────────────────────────────────────────
+let showThoughts = true;  // global — controls whether think blocks render visibly
+
 function initSettings() {
     const settingsToggle = $('settings-toggle');
     const settingsOverlay = $('settings-overlay');
     const settingsClose = $('settings-close');
     const tempSlider = $('temp-slider');
     const tempValue = $('temp-value');
+    const thinkingToggle = $('thinking-toggle');
+    const showThoughtsToggle = $('show-thoughts-toggle');
     const factInput = $('fact-input');
     const factSubmit = $('fact-submit');
     const factFeedback = $('fact-feedback');
@@ -851,8 +856,25 @@ function initSettings() {
         tempValue.textContent = parseFloat(tempSlider.value).toFixed(2);
     });
     tempSlider.addEventListener('change', () => {
-        saveTemperature(parseFloat(tempSlider.value));
+        saveSetting({ temperature: parseFloat(tempSlider.value) });
     });
+
+    // Thinking toggles
+    if (thinkingToggle) {
+        thinkingToggle.addEventListener('change', () => {
+            saveSetting({ thinking_enabled: thinkingToggle.checked });
+        });
+    }
+    if (showThoughtsToggle) {
+        showThoughtsToggle.addEventListener('change', () => {
+            showThoughts = showThoughtsToggle.checked;
+            saveSetting({ show_thoughts: showThoughtsToggle.checked });
+            // Toggle visibility of existing think blocks in chat
+            document.querySelectorAll('.think-block').forEach(el => {
+                el.style.display = showThoughts ? '' : 'none';
+            });
+        });
+    }
 
     // Fact submission
     factSubmit.addEventListener('click', submitFact);
@@ -868,16 +890,22 @@ function initSettings() {
             const temp = data.temperature ?? 0.7;
             tempSlider.value = temp;
             tempValue.textContent = parseFloat(temp).toFixed(2);
+
+            if (thinkingToggle) thinkingToggle.checked = data.thinking_enabled ?? false;
+            if (showThoughtsToggle) {
+                showThoughtsToggle.checked = data.show_thoughts ?? true;
+                showThoughts = data.show_thoughts ?? true;
+            }
         } catch {}
     }
 
-    async function saveTemperature(temp) {
+    async function saveSetting(updates) {
         if (!currentUserId) return;
         try {
             await fetch(`/api/user/${encodeURIComponent(currentUserId)}/settings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ temperature: temp }),
+                body: JSON.stringify(updates),
             });
         } catch {}
     }
