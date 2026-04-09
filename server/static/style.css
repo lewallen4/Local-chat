@@ -59,6 +59,12 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 
+/* Logo theme switching — show white on dark, black on light */
+.logo-light { display: none; }
+.logo-dark  { display: inline-block; }
+[data-theme="light"] .logo-light { display: inline-block; }
+[data-theme="light"] .logo-dark  { display: none; }
+
 body {
     font-family: var(--font-ui);
     font-weight: 200;
