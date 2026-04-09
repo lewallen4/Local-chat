@@ -16,6 +16,7 @@ from model_loader import ModelLoader
 from session_manager import SessionManager, is_returning_user, provision_user
 from summarizer import SessionSummarizer
 from knowledge_base import KnowledgeBase
+from logger import log, log_prompt, log_response, log_session, log_knowledge, log_summary, log_error
 
 app = FastAPI()
 
@@ -138,6 +139,10 @@ async def end_session(session_id: str):
     session_data = active_sessions.pop(session_id)
     wal_delete(session_id)
 
+    user_id = session_data.get("user_id", "")
+    msg_count = len(session_data.get("messages", []))
+    log_session("end", session_id, user_id, f"messages={msg_count}")
+
     if not session_data.get("messages"):
         return
 
@@ -148,6 +153,9 @@ async def end_session(session_id: str):
     )
     sm.save_to_memory(summary, session_data["messages"])
     sm.save_session_log(session_id, session_data)
+
+    if summary:
+        log_summary(session_id, summary.get("summary", ""))
 
 
 async def cleanup_stale_sessions():
@@ -167,8 +175,11 @@ async def cleanup_stale_sessions():
 
 @app.on_event("startup")
 async def startup_event():
+    log("INFO", f"Server starting — model={_model_path} arch={model_loader.arch}")
     await recover_crashed_sessions()
     knowledge.load_index()
+    if knowledge.ready:
+        log("INFO", f"Knowledge base loaded: {knowledge.chunk_count} chunks")
     asyncio.create_task(cleanup_stale_sessions())
 
 
@@ -257,6 +268,8 @@ async def start_chat(request: Request):
         "metadata": data.get("metadata", {}),
     }
 
+    log_session("start", session_id, user_id, f"seeded={len(seeded)}")
+
     # Write seeded messages to WAL so crash recovery captures them
     for m in seeded:
         wal_append(session_id, m)
@@ -295,6 +308,7 @@ async def rejoin_session(request: Request):
     if session_id in active_sessions:
         session = active_sessions[session_id]
         session["last_active"] = datetime.now()
+        log_session("rejoin", session_id, user_id, "already-active")
         return JSONResponse({
             "session_id": session_id,
             "user_id": user_id,
@@ -333,6 +347,8 @@ async def rejoin_session(request: Request):
     # Re-establish WAL
     for m in messages:
         wal_append(session_id, m)
+
+    log_session("rejoin", session_id, user_id, f"from-disk messages={len(messages)}")
 
     return JSONResponse({
         "session_id": session_id,
@@ -374,6 +390,8 @@ async def chat(session_id: str, request: Request):
     kb_context = ""
     if knowledge.ready:
         kb_context = knowledge.get_context(user_message)
+        if kb_context:
+            log_knowledge(user_message, kb_context.count("---") + 1, 0)
 
     # Load per-user settings
     user_settings = _load_settings(session["user_id"])
@@ -383,6 +401,18 @@ async def chat(session_id: str, request: Request):
     # Apply per-user settings to context
     full_context["temperature"] = user_settings.get("temperature", 0.7)
     full_context["show_thoughts"] = user_settings.get("show_thoughts", True)
+
+    # Log the full prompt
+    log_prompt(
+        arch=model_loader.arch,
+        prompt=full_context["prompt"],
+        memory_used=full_context["memory_used"],
+        knowledge_used=bool(kb_context),
+        temperature=full_context["temperature"],
+    )
+
+    import time as _time
+    _start_time = _time.monotonic()
 
     async def generate():
         full_response = ""
@@ -395,9 +425,14 @@ async def chat(session_id: str, request: Request):
 
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            log_error("generate_stream", e)
 
         finally:
+            # Log the full response
+            elapsed = int((_time.monotonic() - _start_time) * 1000)
             if full_response.strip():
+                log_response(full_response.strip(), elapsed)
+
                 # Store the full response for display
                 stored_content = full_response.strip()
                 # For Gemma 4, strip thinking blocks from history
@@ -518,6 +553,7 @@ async def save_settings(user_id: str, request: Request):
         settings["show_thoughts"] = bool(data["show_thoughts"])
 
     _save_settings(user_id, settings)
+    log("SETTINGS", f"user={user_id} → {json.dumps(settings)}")
     return JSONResponse(settings)
 
 
