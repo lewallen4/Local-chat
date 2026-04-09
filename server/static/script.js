@@ -167,6 +167,10 @@ function applyTheme(theme) {
         darkSheet.disabled  = (theme === 'light');
         lightSheet.disabled = (theme === 'dark');
     }
+    // Swap all logo images
+    const logoSrc = theme === 'dark' ? '/static/logo_white.svg' : '/static/logo_black.svg';
+    document.querySelectorAll('.theme-logo').forEach(img => { img.src = logoSrc; });
+
     if (themeToggle) {
         themeToggle.title     = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
         themeToggle.innerHTML = theme === 'dark' ? sunIcon() : moonIcon();
@@ -374,8 +378,7 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon loading-spin">
-                <img src="/static/logo_white.svg" class="logo-dark" width="40" height="40" alt="">
-                <img src="/static/logo_black.svg" class="logo-light" width="40" height="40" alt="">
+                <img src="/static/logo_white.svg" class="theme-logo" width="40" height="40" alt="">
             </div>
             <h2>Preparing session…</h2>
             <p class="loading-sub">Building memory and context</p>
@@ -397,8 +400,7 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon">
-                <img src="/static/logo_white.svg" class="logo-dark" width="40" height="40" alt="">
-                <img src="/static/logo_black.svg" class="logo-light" width="40" height="40" alt="">
+                <img src="/static/logo_white.svg" class="theme-logo" width="40" height="40" alt="">
             </div>
             <h2>New session started.</h2>
             <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
@@ -635,7 +637,7 @@ function appendMessage(role, text) {
     if (role === 'user') {
         avatar.textContent = currentUserId ? currentUserId.slice(0,2).toUpperCase() : 'U';
     } else {
-        avatar.innerHTML = '<img src="/static/logo_white.svg" class="logo-dark" width="18" height="18" alt="AI"><img src="/static/logo_black.svg" class="logo-light" width="18" height="18" alt="AI">';
+        avatar.innerHTML = '<img src="/static/logo_white.svg" class="theme-logo" width="18" height="18" alt="AI">';
     }
 
     const bubble  = document.createElement('div');
@@ -672,7 +674,7 @@ function createAssistantBubble() {
 
     const avatar = document.createElement('div');
     avatar.className   = 'avatar ai-avatar';
-    avatar.innerHTML = '<img src="/static/logo_white.svg" class="logo-dark" width="18" height="18" alt="AI"><img src="/static/logo_black.svg" class="logo-light" width="18" height="18" alt="AI">';
+    avatar.innerHTML = '<img src="/static/logo_white.svg" class="theme-logo" width="18" height="18" alt="AI">';
 
     const bubble  = document.createElement('div');
     bubble.className = 'message-bubble';
