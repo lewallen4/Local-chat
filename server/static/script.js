@@ -374,10 +374,8 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon loading-spin">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+                <img src="/static/logo_white.svg" class="logo-dark" width="40" height="40" alt="">
+                <img src="/static/logo_black.svg" class="logo-light" width="40" height="40" alt="">
             </div>
             <h2>Preparing session…</h2>
             <p class="loading-sub">Building memory and context</p>
@@ -399,10 +397,8 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"
-                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
+                <img src="/static/logo_white.svg" class="logo-dark" width="40" height="40" alt="">
+                <img src="/static/logo_black.svg" class="logo-light" width="40" height="40" alt="">
             </div>
             <h2>New session started.</h2>
             <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
@@ -636,7 +632,11 @@ function appendMessage(role, text) {
 
     const avatar = document.createElement('div');
     avatar.className   = role === 'user' ? 'avatar user-avatar' : 'avatar ai-avatar';
-    avatar.textContent = role === 'user' ? (currentUserId ? currentUserId.slice(0,2).toUpperCase() : 'U') : 'AI';
+    if (role === 'user') {
+        avatar.textContent = currentUserId ? currentUserId.slice(0,2).toUpperCase() : 'U';
+    } else {
+        avatar.innerHTML = '<img src="/static/logo_white.svg" class="logo-dark" width="18" height="18" alt="AI"><img src="/static/logo_black.svg" class="logo-light" width="18" height="18" alt="AI">';
+    }
 
     const bubble  = document.createElement('div');
     bubble.className = 'message-bubble';
@@ -672,7 +672,7 @@ function createAssistantBubble() {
 
     const avatar = document.createElement('div');
     avatar.className   = 'avatar ai-avatar';
-    avatar.textContent = 'AI';
+    avatar.innerHTML = '<img src="/static/logo_white.svg" class="logo-dark" width="18" height="18" alt="AI"><img src="/static/logo_black.svg" class="logo-light" width="18" height="18" alt="AI">';
 
     const bubble  = document.createElement('div');
     bubble.className = 'message-bubble';
