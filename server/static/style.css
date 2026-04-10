@@ -121,14 +121,12 @@ body {
 .brand-icon {
     width: 32px;
     height: 32px;
-    background: linear-gradient(135deg, var(--blue-mid), var(--blue-core));
+    background: transparent;
     border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
     flex-shrink: 0;
-    box-shadow: 0 0 16px rgba(46,125,209,0.35);
 }
 
 .brand-name {
@@ -397,21 +395,17 @@ body {
 .welcome-icon {
     width: 72px;
     height: 72px;
-    background: linear-gradient(135deg, var(--bg-elevated), var(--bg-active));
-    border: 1px solid var(--border-mid);
+    background: transparent;
+    border: none;
     border-radius: var(--radius-xl);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--blue-bright);
-    box-shadow: 0 0 40px rgba(46,125,209,0.15), inset 0 1px 0 rgba(255,255,255,0.05);
     margin-bottom: 4px;
 }
 
 .welcome-icon.loading-spin {
     animation: gentle-spin 2.5s ease-in-out infinite;
-    box-shadow: 0 0 50px rgba(46,125,209,0.3);
-    border-color: var(--blue-core);
 }
 
 @keyframes gentle-spin {
@@ -511,9 +505,8 @@ body {
 }
 
 .avatar.ai-avatar {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-mid);
-    color: var(--blue-bright);
+    background: transparent;
+    border: none;
 }
 
 .message-bubble {
@@ -1111,14 +1104,11 @@ body {
 .id-gate-icon {
     width: 56px;
     height: 56px;
-    background: linear-gradient(135deg, var(--blue-mid), var(--blue-core));
-    border-radius: var(--radius-lg);
+    background: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
     margin-bottom: 4px;
-    box-shadow: 0 0 32px rgba(46,125,209,0.4);
 }
 
 .id-gate-title {
