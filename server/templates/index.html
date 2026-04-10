@@ -4,6 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Local Chat | Skye-AI</title>
+    <script>
+        // Set theme before paint to prevent flash of wrong logo
+        (function(){
+            var t = localStorage.getItem('localchat-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            window.__initialTheme = t;
+        })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Lexend:wght@200;400;500;600;700&family=Syne:wght@600;700&display=swap" rel="stylesheet">
@@ -256,6 +264,13 @@
         </div>
     </div>
 
+    <script>
+        // Swap static logo srcs to match theme before main script loads
+        (function(){
+            var src = (window.__initialTheme || 'dark') === 'dark' ? '/static/logo_white.svg' : '/static/logo_black.svg';
+            document.querySelectorAll('.theme-logo').forEach(function(img){ img.src = src; });
+        })();
+    </script>
     <script src="/static/script.js"></script>
 </body>
 </html>
