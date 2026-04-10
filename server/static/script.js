@@ -369,6 +369,11 @@ async function endCurrentSession() {
 }
 
 // ── Switch to a new blank session ─────────────────────────────────────
+function currentLogoSrc() {
+    const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+    return theme === 'dark' ? '/static/logo_white.svg' : '/static/logo_black.svg';
+}
+
 async function switchToNewSession() {
     if (isGenerating) stopGeneration();
 
@@ -378,7 +383,7 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon loading-spin">
-                <img src="/static/logo_white.svg" class="theme-logo" width="40" height="40" alt="">
+                <img src="${currentLogoSrc()}" class="theme-logo" width="40" height="40" alt="">
             </div>
             <h2>Preparing session…</h2>
             <p class="loading-sub">Building memory and context</p>
@@ -400,7 +405,7 @@ async function switchToNewSession() {
     chatMessages.innerHTML = `
         <div class="welcome-screen">
             <div class="welcome-icon">
-                <img src="/static/logo_white.svg" class="theme-logo" width="40" height="40" alt="">
+                <img src="${currentLogoSrc()}" class="theme-logo" width="40" height="40" alt="">
             </div>
             <h2>New session started.</h2>
             <p>Continuing as <strong>${escHtml(currentUserId)}</strong>.</p>
