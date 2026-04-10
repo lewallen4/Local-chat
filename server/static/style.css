@@ -122,11 +122,13 @@ body {
     width: 32px;
     height: 32px;
     background: transparent;
+    border: 1px solid var(--border-mid);
     border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    box-shadow: 0 0 16px rgba(46,125,209,0.35);
 }
 
 .brand-name {
@@ -396,11 +398,12 @@ body {
     width: 72px;
     height: 72px;
     background: transparent;
-    border: none;
+    border: 1px solid var(--border-mid);
     border-radius: var(--radius-xl);
     display: flex;
     align-items: center;
     justify-content: center;
+    box-shadow: 0 0 40px rgba(46,125,209,0.15);
     margin-bottom: 4px;
 }
 
@@ -506,7 +509,7 @@ body {
 
 .avatar.ai-avatar {
     background: transparent;
-    border: none;
+    border: 1px solid var(--border-mid);
 }
 
 .message-bubble {
@@ -1105,10 +1108,13 @@ body {
     width: 56px;
     height: 56px;
     background: transparent;
+    border: 1px solid var(--border-mid);
+    border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
     margin-bottom: 4px;
+    box-shadow: 0 0 32px rgba(46,125,209,0.4);
 }
 
 .id-gate-title {
