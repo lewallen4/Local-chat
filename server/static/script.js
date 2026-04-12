@@ -642,7 +642,7 @@ function appendMessage(role, text) {
     if (role === 'user') {
         avatar.textContent = currentUserId ? currentUserId.slice(0,2).toUpperCase() : 'U';
     } else {
-        avatar.innerHTML = '<img src="/static/logo_white.svg" class="theme-logo" width="18" height="18" alt="AI">';
+        avatar.innerHTML = `<img src="${currentLogoSrc()}" class="theme-logo" width="18" height="18" alt="AI">`;
     }
 
     const bubble  = document.createElement('div');
@@ -679,7 +679,7 @@ function createAssistantBubble() {
 
     const avatar = document.createElement('div');
     avatar.className   = 'avatar ai-avatar';
-    avatar.innerHTML = '<img src="/static/logo_white.svg" class="theme-logo" width="18" height="18" alt="AI">';
+    avatar.innerHTML = `<img src="${currentLogoSrc()}" class="theme-logo" width="18" height="18" alt="AI">`;
 
     const bubble  = document.createElement('div');
     bubble.className = 'message-bubble';
