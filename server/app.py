@@ -396,11 +396,16 @@ async def chat(session_id: str, request: Request):
     # Load per-user settings
     user_settings = _load_settings(session["user_id"])
 
-    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch, thinking=user_settings.get("thinking_enabled", False))
+    # Resolve response length config
+    length_key = user_settings.get("response_length", "medium")
+    length_cfg = RESPONSE_LENGTH_MAP.get(length_key, RESPONSE_LENGTH_MAP["medium"])
+
+    full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch, thinking=user_settings.get("thinking_enabled", False), length_hint=length_cfg["prompt_hint"])
 
     # Apply per-user settings to context
     full_context["temperature"] = user_settings.get("temperature", 0.7)
     full_context["show_thoughts"] = user_settings.get("show_thoughts", True)
+    full_context["max_tokens"] = length_cfg["max_tokens"]
 
     # Log the full prompt
     log_prompt(
@@ -494,7 +499,16 @@ async def get_memory(user_id: str = ""):
 
 # ── Per-user settings ──────────────────────────────────────────────
 
-SETTINGS_DEFAULTS = {"temperature": 0.7, "thinking_enabled": False, "show_thoughts": True}
+SETTINGS_DEFAULTS = {"temperature": 0.7, "thinking_enabled": False, "show_thoughts": True, "response_length": "medium"}
+
+# ── Response length config ─────────────────────────────────────────
+RESPONSE_LENGTH_MAP = {
+    "short":      {"max_tokens": 1024, "prompt_hint": "Be very brief. Respond in 1-3 sentences max."},
+    "medium":     {"max_tokens": 1024, "prompt_hint": "Be concise but complete."},
+    "long":       {"max_tokens": 1024, "prompt_hint": "Be thorough and detailed."},
+    "extra_long": {"max_tokens": 2048, "prompt_hint": "Provide a comprehensive, in-depth response with examples where helpful."},
+    "epic":       {"max_tokens": 4096, "prompt_hint": "Provide an exhaustive, deeply detailed response. Cover all angles thoroughly with examples, edge cases, and nuance."},
+}
 
 
 def _settings_path(user_id: str) -> Path:
@@ -551,6 +565,13 @@ async def save_settings(user_id: str, request: Request):
         settings["thinking_enabled"] = bool(data["thinking_enabled"])
     if "show_thoughts" in data:
         settings["show_thoughts"] = bool(data["show_thoughts"])
+
+    # Validate and apply response length
+    if "response_length" in data:
+        rl = data["response_length"]
+        if rl not in RESPONSE_LENGTH_MAP:
+            raise HTTPException(status_code=400, detail="Invalid response_length value")
+        settings["response_length"] = rl
 
     _save_settings(user_id, settings)
     log("SETTINGS", f"user={user_id} → {json.dumps(settings)}")
