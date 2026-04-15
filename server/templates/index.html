@@ -215,7 +215,26 @@
 
             <div class="settings-body">
                 <div class="settings-section">
-                    <label class="settings-label">Temperature</label>
+                    <label class="settings-label">Response Length</label>
+                    <p class="settings-desc">Adjusts how long and detailed responses are. This is a suggestion to the AI and not a guarantee.</p>
+                    <div class="length-slider-track">
+                        <input type="range" id="length-slider" class="length-slider"
+                               min="0" max="4" step="1" value="1">
+                        <div class="length-slider-stops">
+                            <span></span><span></span><span></span><span></span><span></span>
+                        </div>
+                    </div>
+                    <div class="length-labels">
+                        <span>Short</span>
+                        <span>Medium</span>
+                        <span>Long</span>
+                        <span>Extra Long</span>
+                        <span>Epic</span>
+                    </div>
+                    <div class="length-current" id="length-current">Medium</div>
+                </div>
+
+                <div class="settings-section">
                     <p class="settings-desc">Controls randomness. Lower = more focused, higher = more creative.</p>
                     <div class="settings-slider-row">
                         <input type="range" id="temp-slider" class="settings-slider"
