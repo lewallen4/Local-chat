@@ -108,7 +108,7 @@ class ModelLoader:
             try:
                 self.model = llama_cpp.Llama(
                     model_path=str(self.model_path),
-                    n_ctx=4096,
+                    n_ctx=8192,
                     n_threads=4,
                     n_gpu_layers=0,
                     verbose=False,
@@ -221,12 +221,13 @@ class ModelLoader:
     async def generate_stream(self, context: Dict[str, Any]) -> AsyncGenerator[str, None]:
         prompt = context.get("prompt", "")
         temperature = context.get("temperature", 0.7)
+        max_tokens = context.get("max_tokens", 1024)
 
         if self.backend == "llama.cpp":
             try:
                 stream = self.model(
                     prompt,
-                    max_tokens=512,
+                    max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=0.95,
                     repeat_penalty=1.1,
