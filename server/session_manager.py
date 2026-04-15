@@ -142,7 +142,7 @@ class SessionManager:
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
 
-    def prepare_context(self, messages: List[Dict], global_memory: str, knowledge_context: str = "", arch: str = "", thinking: bool = False) -> Dict[str, Any]:
+    def prepare_context(self, messages: List[Dict], global_memory: str, knowledge_context: str = "", arch: str = "", thinking: bool = False, length_hint: str = "") -> Dict[str, Any]:
         recent = messages[-12:]
 
         memory_block = ""
@@ -157,9 +157,9 @@ class SessionManager:
 
         # Build architecture-specific prompt
         if arch == "gemma4":
-            prompt = self._build_gemma4_prompt(system_prompt, memory_block, knowledge_context, recent, thinking)
+            prompt = self._build_gemma4_prompt(system_prompt, memory_block, knowledge_context, recent, thinking, length_hint)
         else:
-            prompt = self._build_default_prompt(system_prompt, memory_block, knowledge_context, recent)
+            prompt = self._build_default_prompt(system_prompt, memory_block, knowledge_context, recent, length_hint)
 
         return {
             "prompt": prompt,
@@ -167,7 +167,7 @@ class SessionManager:
             "message_count": len(messages),
         }
 
-    def _build_default_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict]) -> str:
+    def _build_default_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict], length_hint: str = "") -> str:
         """Generic USER: / ASSISTANT: format — works with Granite, Llama, Mistral, etc."""
         conversation_lines = []
         for msg in messages:
@@ -181,8 +181,11 @@ class SessionManager:
         if memory_block:
             mem = f"CONTEXT FROM PREVIOUS SESSIONS:\n{memory_block}\n\n"
 
+        length_line = f"RESPONSE STYLE: {length_hint}\n\n" if length_hint else ""
+
         return (
             f"{system_prompt}\n\n"
+            f"{length_line}"
             f"{knowledge_context}"
             f"{mem}"
             "CONVERSATION:\n"
@@ -190,14 +193,14 @@ class SessionManager:
             "ASSISTANT:"
         )
 
-    def _build_gemma4_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict], thinking: bool = False) -> str:
+    def _build_gemma4_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict], thinking: bool = False, length_hint: str = "") -> str:
         """Gemma 4 chat template using <|turn> / <turn|> markers."""
-        # System turn — include memory and knowledge in the system context
-        # Add <|think|> token to enable thinking mode
         system_content = ""
         if thinking:
             system_content = "<|think|>\n"
         system_content += system_prompt
+        if length_hint:
+            system_content += f"\n\nRESPONSE STYLE: {length_hint}"
         if knowledge_context:
             system_content += "\n\n" + knowledge_context.strip()
         if memory_block:
