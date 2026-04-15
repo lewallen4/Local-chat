@@ -733,6 +733,12 @@ function toggleSidebar() {
     sidebar.classList.toggle('collapsed');
 }
 
+function initSidebarMobile() {
+    if (window.innerWidth <= 768) {
+        sidebar.classList.add('collapsed');
+    }
+}
+
 // ── Session list helpers ──────────────────────────────────────────────
 function markAllSessionsInactive() {
     sessionList.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
@@ -760,7 +766,10 @@ function createSessionItem(sessionId, title, meta, isActive) {
             <div class="session-item-meta">${escHtml(meta)}</div>
         </div>`;
 
-    item.addEventListener('click', () => loadPastSession(sessionId, title));
+    item.addEventListener('click', () => {
+        loadPastSession(sessionId, title);
+        if (window.innerWidth <= 768) sidebar.classList.add('collapsed');
+    });
     return item;
 }
 
@@ -820,7 +829,10 @@ function setupEventListeners() {
     });
 
     userInput.addEventListener('input', autoResize);
-    newChatBtn.addEventListener('click', switchToNewSession);
+    newChatBtn.addEventListener('click', () => {
+        switchToNewSession();
+        if (window.innerWidth <= 768) sidebar.classList.add('collapsed');
+    });
     sidebarToggle.addEventListener('click', toggleSidebar);
     initMemoryToggle();
     initSettings();
@@ -1050,4 +1062,5 @@ window.addEventListener('beforeunload', () => {
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initIdGate();
+    initSidebarMobile();
 });
