@@ -744,13 +744,17 @@ body {
         border-right: 1px solid var(--border-subtle);
     }
 
-    /* Dim overlay behind open sidebar */
-    .sidebar:not(.collapsed)::after {
-        content: '';
+    /* Dim overlay behind open sidebar — real div so JS can listen to it */
+    .sidebar-backdrop {
+        display: none;
         position: fixed;
-        top: 0; left: 85vw; right: 0; bottom: 0;
+        inset: 0;
         background: rgba(0,0,0,0.45);
         z-index: 99;
+    }
+
+    .sidebar-backdrop.active {
+        display: block;
     }
 
     /* Main chat takes full width always */
