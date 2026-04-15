@@ -731,11 +731,25 @@ function autoResize() {
 
 function toggleSidebar() {
     sidebar.classList.toggle('collapsed');
+    if (window.innerWidth <= 768) {
+        const backdrop = document.getElementById('sidebar-backdrop');
+        if (backdrop) backdrop.classList.toggle('active', !sidebar.classList.contains('collapsed'));
+    }
+}
+
+function closeSidebarMobile() {
+    if (window.innerWidth <= 768) {
+        sidebar.classList.add('collapsed');
+        const backdrop = document.getElementById('sidebar-backdrop');
+        if (backdrop) backdrop.classList.remove('active');
+    }
 }
 
 function initSidebarMobile() {
     if (window.innerWidth <= 768) {
         sidebar.classList.add('collapsed');
+        const backdrop = document.getElementById('sidebar-backdrop');
+        if (backdrop) backdrop.addEventListener('click', closeSidebarMobile);
     }
 }
 
@@ -768,7 +782,7 @@ function createSessionItem(sessionId, title, meta, isActive) {
 
     item.addEventListener('click', () => {
         loadPastSession(sessionId, title);
-        if (window.innerWidth <= 768) sidebar.classList.add('collapsed');
+        closeSidebarMobile();
     });
     return item;
 }
@@ -831,7 +845,7 @@ function setupEventListeners() {
     userInput.addEventListener('input', autoResize);
     newChatBtn.addEventListener('click', () => {
         switchToNewSession();
-        if (window.innerWidth <= 768) sidebar.classList.add('collapsed');
+        closeSidebarMobile();
     });
     sidebarToggle.addEventListener('click', toggleSidebar);
     initMemoryToggle();
