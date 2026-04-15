@@ -847,6 +847,32 @@ function initSettings() {
     const factFeedback = $('fact-feedback');
     const factList = $('fact-list');
 
+    const lengthSlider  = $('length-slider');
+    const lengthCurrent = $('length-current');
+
+    const LENGTH_STEPS = [
+        { key: 'short',      label: 'Short' },
+        { key: 'medium',     label: 'Medium' },
+        { key: 'long',       label: 'Long' },
+        { key: 'extra_long', label: 'Extra Long' },
+        { key: 'epic',       label: 'Epic' },
+    ];
+
+    function updateLengthDisplay(idx) {
+        if (lengthCurrent) lengthCurrent.textContent = LENGTH_STEPS[idx].label;
+    }
+
+    if (lengthSlider) {
+        lengthSlider.addEventListener('input', () => {
+            updateLengthDisplay(parseInt(lengthSlider.value));
+        });
+        lengthSlider.addEventListener('change', () => {
+            const idx = parseInt(lengthSlider.value);
+            updateLengthDisplay(idx);
+            saveSetting({ response_length: LENGTH_STEPS[idx].key });
+        });
+    }
+
     if (!settingsToggle || !settingsOverlay) return;
 
     // Open / close
@@ -908,6 +934,12 @@ function initSettings() {
             if (showThoughtsToggle) {
                 showThoughtsToggle.checked = data.show_thoughts ?? true;
                 showThoughts = data.show_thoughts ?? true;
+            }
+            if (lengthSlider) {
+                const lengthKeys = LENGTH_STEPS.map(s => s.key);
+                const idx = lengthKeys.indexOf(data.response_length ?? 'medium');
+                lengthSlider.value = idx >= 0 ? idx : 1;
+                updateLengthDisplay(parseInt(lengthSlider.value));
             }
         } catch {}
     }
