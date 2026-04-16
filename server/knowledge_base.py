@@ -216,17 +216,17 @@ def _extract_confluence_content(raw: str) -> str:
     # Try to find a content anchor by id
     content_raw = None
     for cid in _CONTENT_IDS:
-        m = re.search(rf'id=["\']?{re.escape(cid)}["\']?', raw, re.IGNORECASE)
+        m = re.search(rf'<[^>]+id=["\']?{re.escape(cid)}["\']?[^>]*>', raw, re.IGNORECASE)
         if m:
-            content_raw = raw[m.start():]
+            content_raw = raw[m.end():]
             break
 
     # Try by class if no id match
     if content_raw is None:
         for cls in _CONTENT_CLASSES:
-            m = re.search(rf'class=["\'][^"\']*{re.escape(cls)}[^"\']*["\']|class=["\']?{re.escape(cls)}["\']?', raw, re.IGNORECASE)
+            m = re.search(rf'<[^>]+class=["\'][^"\']*{re.escape(cls)}[^"\']*["\'][^>]*>', raw, re.IGNORECASE)
             if m:
-                content_raw = raw[m.start():]
+                content_raw = raw[m.end():]
                 break
 
     parser = ConfluenceHTMLParser()
