@@ -45,17 +45,17 @@ echo ""
 if [ ! -d "$KNOWLEDGE_DIR" ]; then
     mkdir -p "$KNOWLEDGE_DIR"
     echo -e "  ${YELLOW}⚠${RESET}  Created ${KNOWLEDGE_DIR}"
-    echo -e "  ${DIM}Drop your .xml, .md, or .txt files there and re-run.${RESET}"
+    echo -e "  ${DIM}Drop your .xml, .html, .md, or .txt files there and re-run.${RESET}"
     echo ""
     exit 0
 fi
 
-FILE_COUNT=$(find "$KNOWLEDGE_DIR" -maxdepth 1 -type f \( -name "*.xml" -o -name "*.md" -o -name "*.txt" \) | wc -l)
+FILE_COUNT=$(find "$KNOWLEDGE_DIR" -maxdepth 1 -type f \( -name "*.xml" -o -name "*.md" -o -name "*.txt" -o -name "*.html" -o -name "*.htm" \) | wc -l)
 if [ "$FILE_COUNT" -eq 0 ]; then
     echo -e "  ${YELLOW}⚠${RESET}  No .xml, .md, or .txt files found in:"
     echo -e "     ${DIM}${KNOWLEDGE_DIR}${RESET}"
     echo ""
-    echo -e "  ${DIM}Drop your Confluence export or docs there and re-run.${RESET}"
+    echo -e "  ${DIM}Drop your Confluence export (.xml, .html) or docs (.md, .txt) there and re-run.${RESET}"
     echo ""
     exit 0
 fi
