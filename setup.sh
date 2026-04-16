@@ -422,8 +422,9 @@ finish() {
         echo "  Virtualenv: $VENV_DIR"
         echo ""
         echo "  Next steps:"
-        echo "  1. bash model_pull.sh   — download a model"
-        echo "  2. bash run.sh          — start the server"
+        echo "  1. bash model_pull.sh       — download a model"
+        echo "  2. bash gui_model_pull.sh   — select a model from a list"
+        echo "  3. bash run.sh              — start the server"
     else
         echo -e "${YELLOW}${BOLD}╔══════════════════════════════════════════╗${RESET}"
         echo -e "${YELLOW}${BOLD}║      Setup completed with warnings  ⚠    ║${RESET}"
