@@ -36,7 +36,6 @@ const sessionList       = $('session-list');
 const memoryToggle      = $('memory-toggle');
 const memoryPanel       = $('memory-panel');
 const userBadge         = $('user-badge');
-const switchUserBtn     = $('switch-user-btn');
 const welcomeHeading    = $('welcome-heading');
 const welcomeSub        = $('welcome-sub');
 
@@ -288,24 +287,6 @@ async function enterApp(userId, returning, pastSessions = []) {
     setStatus('loading', 'Connecting…');
     await loadMemory();
     await startSession();
-}
-
-function switchUser() {
-    if (currentSessionId) {
-        navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
-        currentSessionId = null;
-    }
-    currentUserId = null;
-    sessionStorage.removeItem('localchat-user-id');
-
-    idFeedback.textContent = '';
-    idFeedback.className   = 'id-feedback';
-    userIdInput.value      = '';
-    idSubmit.disabled      = false;
-
-    appShell.classList.add('hidden');
-    idGate.classList.remove('hidden');
-    userIdInput.focus();
 }
 
 // ── Status ────────────────────────────────────────────────────────────
@@ -835,7 +816,6 @@ function setupEventListeners() {
     sendButton.addEventListener('click', sendMessage);
     stopButton.addEventListener('click', stopGeneration);
     themeToggle.addEventListener('click', toggleTheme);
-    switchUserBtn.addEventListener('click', switchUser);
 
     userInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
