@@ -403,7 +403,7 @@ async def chat(session_id: str, request: Request):
     full_context = sm.prepare_context(msgs, session["context_memory"], kb_context, arch=model_loader.arch, thinking=user_settings.get("thinking_enabled", False), length_hint=length_cfg["prompt_hint"])
 
     # Apply per-user settings to context
-    full_context["temperature"] = user_settings.get("temperature", 0.7)
+    full_context["temperature"] = user_settings.get("temperature", 0.0)
     full_context["show_thoughts"] = user_settings.get("show_thoughts", True)
     full_context["max_tokens"] = length_cfg["max_tokens"]
 
@@ -499,7 +499,7 @@ async def get_memory(user_id: str = ""):
 
 # ── Per-user settings ──────────────────────────────────────────────
 
-SETTINGS_DEFAULTS = {"temperature": 0.7, "thinking_enabled": False, "show_thoughts": True, "response_length": "medium"}
+SETTINGS_DEFAULTS = {"temperature": 0.0, "thinking_enabled": False, "show_thoughts": True, "response_length": "medium"}
 
 # ── Response length config ─────────────────────────────────────────
 RESPONSE_LENGTH_MAP = {
