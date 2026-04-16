@@ -134,6 +134,32 @@ def read_text_file(path: Path) -> List[Dict[str, str]]:
     return []
 
 
+# ── HTML file reader ───────────────────────────────────────────────
+def read_html_file(path: Path) -> List[Dict[str, str]]:
+    """
+    Read a standalone HTML file (e.g. Confluence HTML export).
+    Extracts the <title> tag (if present) as the document title,
+    strips all HTML tags, and returns the plain text body.
+    """
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        if not raw:
+            return []
+
+        # Pull <title> for a friendlier document name
+        title = path.stem
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            title = strip_html(title_match.group(1)).strip() or title
+
+        body = strip_html(raw).strip()
+        if body:
+            return [{"title": title, "body": body}]
+    except Exception as e:
+        print(f"  ✗ Could not read {path.name}: {e}")
+    return []
+
+
 # ── Chunker ────────────────────────────────────────────────────────
 def chunk_text(text: str, title: str = "") -> List[Dict[str, str]]:
     """
@@ -249,6 +275,9 @@ class KnowledgeBase:
             elif f.suffix.lower() in (".md", ".txt"):
                 print(f"  📄 Reading: {rel}")
                 documents.extend(read_text_file(f))
+            elif f.suffix.lower() in (".html", ".htm"):
+                print(f"  📄 Reading HTML: {rel}")
+                documents.extend(read_html_file(f))
             else:
                 print(f"  ⊘ Skipping: {rel}")
 
