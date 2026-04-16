@@ -24,14 +24,16 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from html.parser import HTMLParser
 
+
+
 # ── Config ─────────────────────────────────────────────────────────
 KNOWLEDGE_DIR = Path("knowledge")
 INDEX_PATH = Path("knowledge_index.json")
 
-CHUNK_SIZE = 500       # chars per chunk (roughly ~120 tokens)
-CHUNK_OVERLAP = 80     # overlap between consecutive chunks
-TOP_K = 3              # number of chunks to retrieve per query
-MAX_INJECT_CHARS = 1500  # max total chars injected into prompt
+CHUNK_SIZE = 1000      # chars per chunk (roughly ~250 tokens)
+CHUNK_OVERLAP = 150    # overlap between consecutive chunks
+TOP_K = 6              # number of chunks to retrieve per query
+MAX_INJECT_CHARS = 4000  # max total chars injected into prompt
 
 
 # ── HTML stripper ──────────────────────────────────────────────────
@@ -135,24 +137,126 @@ def read_text_file(path: Path) -> List[Dict[str, str]]:
 
 
 # ── HTML file reader ───────────────────────────────────────────────
+# Tag/id/class names that are pure boilerplate in Confluence HTML exports.
+# Content inside these is skipped entirely during parsing.
+_SKIP_TAGS = {"script", "style", "nav", "header", "footer"}
+_SKIP_IDS  = {"header", "footer", "sidebar", "comments-section",
+               "page-navigation", "breadcrumb-section", "page-children-container"}
+_SKIP_CLASSES = {"breadcrumb-section", "page-metadata", "toc-macro",
+                 "page-navigation", "confluence-information-macro-body",
+                 "page-children-container", "footer", "aui-nav"}
+
+# Content div ids/classes to target — checked in priority order.
+# The parser extracts ONLY the first matching region if found.
+_CONTENT_IDS     = ["main-content", "content"]
+_CONTENT_CLASSES = ["wiki-content", "article-content"]
+
+
+class ConfluenceHTMLParser(HTMLParser):
+    """
+    Stdlib-only Confluence-aware HTML parser.
+
+    Two-pass strategy:
+      1. First pass: scan for a known content div (main-content, wiki-content…).
+         If found, record its byte-level start so we can re-parse just that region.
+      2. During text collection: skip entire subtrees whose tag, id, or class
+         matches the boilerplate lists above.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.pieces        = []
+        self._skip_depth   = 0   # >0 means we are inside a skip subtree
+        self._capture      = True
+
+    def _is_skip(self, tag: str, attrs: dict) -> bool:
+        if tag in _SKIP_TAGS:
+            return True
+        el_id = attrs.get("id", "")
+        if el_id in _SKIP_IDS:
+            return True
+        classes = set(attrs.get("class", "").split())
+        if classes & _SKIP_CLASSES:
+            return True
+        return False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if self._skip_depth > 0:
+            self._skip_depth += 1
+            return
+        if self._is_skip(tag, attrs):
+            self._skip_depth = 1
+            return
+
+    def handle_endtag(self, tag):
+        if self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            text = data.strip()
+            if text:
+                self.pieces.append(text)
+
+    def get_text(self) -> str:
+        return " ".join(self.pieces)
+
+
+def _extract_confluence_content(raw: str) -> str:
+    """
+    Extract just the page body from a Confluence HTML export.
+
+    Strategy:
+      1. Try to isolate the content region by id/class using a regex slice
+         (avoids parsing the whole document when possible).
+      2. Parse that slice (or the full doc as fallback) with ConfluenceHTMLParser,
+         which skips boilerplate subtrees.
+    """
+    # Try to find a content anchor by id
+    content_raw = None
+    for cid in _CONTENT_IDS:
+        m = re.search(rf'id=["\']?{re.escape(cid)}["\']?', raw, re.IGNORECASE)
+        if m:
+            content_raw = raw[m.start():]
+            break
+
+    # Try by class if no id match
+    if content_raw is None:
+        for cls in _CONTENT_CLASSES:
+            m = re.search(rf'class=["\'][^"\']*{re.escape(cls)}[^"\']*["\']|class=["\']?{re.escape(cls)}["\']?', raw, re.IGNORECASE)
+            if m:
+                content_raw = raw[m.start():]
+                break
+
+    parser = ConfluenceHTMLParser()
+    parser.feed(content_raw if content_raw is not None else raw)
+    return parser.get_text()
+
+
 def read_html_file(path: Path) -> List[Dict[str, str]]:
     """
     Read a standalone HTML file (e.g. Confluence HTML export).
-    Extracts the <title> tag (if present) as the document title,
-    strips all HTML tags, and returns the plain text body.
+    Extracts only meaningful page content, discarding nav/header/footer boilerplate.
     """
     try:
         raw = path.read_text(encoding="utf-8").strip()
         if not raw:
             return []
 
-        # Pull <title> for a friendlier document name
+        # Extract and clean title
         title = path.stem
         title_match = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
         if title_match:
-            title = strip_html(title_match.group(1)).strip() or title
+            raw_title = strip_html(title_match.group(1)).strip()
+            # Confluence appends " - Space Name - Confluence" to page titles
+            raw_title = re.sub(r"\s*[-–]+\s*[^-–]+[-–]+\s*Confluence\s*$",
+                               "", raw_title, flags=re.IGNORECASE).strip()
+            title = raw_title or title
 
-        body = strip_html(raw).strip()
+        body = _extract_confluence_content(raw)
+        body = re.sub(r"\s+", " ", body).strip()
+
         if body:
             return [{"title": title, "body": body}]
     except Exception as e:
