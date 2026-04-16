@@ -36,6 +36,7 @@ const sessionList       = $('session-list');
 const memoryToggle      = $('memory-toggle');
 const memoryPanel       = $('memory-panel');
 const userBadge         = $('user-badge');
+const switchUserBtn     = $('switch-user-btn');
 const welcomeHeading    = $('welcome-heading');
 const welcomeSub        = $('welcome-sub');
 
@@ -196,6 +197,16 @@ function moonIcon() {
 
 // ── ID Gate ──────────────────────────────────────────────────────────
 function initIdGate() {
+    // Check for ?user= query param (e.g. forwarded by nginx after auth)
+    const params = new URLSearchParams(window.location.search);
+    const paramUser = params.get('user');
+    if (paramUser && /^[a-zA-Z0-9_\-]{5,5}$/.test(paramUser.trim())) {
+        // Clean the param from the URL without triggering a reload
+        window.history.replaceState({}, '', window.location.pathname);
+        autoEnterApp(paramUser.trim());
+        return;
+    }
+
     const saved = sessionStorage.getItem('localchat-user-id');
     if (saved) {
         enterApp(saved, false);
@@ -210,6 +221,24 @@ function initIdGate() {
     userIdInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') submitUserId();
     });
+}
+
+async function autoEnterApp(userId) {
+    try {
+        const res  = await fetch(`/api/user/${encodeURIComponent(userId)}/check`);
+        const data = await res.json();
+        if (res.ok) {
+            enterApp(userId, data.returning, data.sessions || []);
+        } else {
+            idGate.classList.remove('hidden');
+            appShell.classList.add('hidden');
+            userIdInput.focus();
+        }
+    } catch {
+        idGate.classList.remove('hidden');
+        appShell.classList.add('hidden');
+        userIdInput.focus();
+    }
 }
 
 async function submitUserId() {
@@ -287,6 +316,24 @@ async function enterApp(userId, returning, pastSessions = []) {
     setStatus('loading', 'Connecting…');
     await loadMemory();
     await startSession();
+}
+
+function switchUser() {
+    if (currentSessionId) {
+        navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
+        currentSessionId = null;
+    }
+    currentUserId = null;
+    sessionStorage.removeItem('localchat-user-id');
+
+    idFeedback.textContent = '';
+    idFeedback.className   = 'id-feedback';
+    userIdInput.value      = '';
+    idSubmit.disabled      = false;
+
+    appShell.classList.add('hidden');
+    idGate.classList.remove('hidden');
+    userIdInput.focus();
 }
 
 // ── Status ────────────────────────────────────────────────────────────
@@ -816,6 +863,7 @@ function setupEventListeners() {
     sendButton.addEventListener('click', sendMessage);
     stopButton.addEventListener('click', stopGeneration);
     themeToggle.addEventListener('click', toggleTheme);
+    switchUserBtn.addEventListener('click', switchUser);
 
     userInput.addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
