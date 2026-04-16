@@ -24,7 +24,7 @@ MODELS_DIR="$SERVER_DIR/models"
 VENV_DIR="$HOME/.localchat-venv"
 SETUP_OK=true
 
-PYTHON_TARGET="3.13"
+PYTHON_TARGET="3.12"
 PYTHON_BIN=""   # resolved later
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -138,12 +138,12 @@ bootstrap_pip() {
     return 1
 }
 
-# ── Resolve or install Python 3.13 ────────────────────────────────
+# ── Resolve or install Python 3.12 ────────────────────────────────
 resolve_python() {
     step "Resolving Python $PYTHON_TARGET"
 
     # Prefer exact version binaries first
-    for candidate in python3.13 python3 python; do
+    for candidate in python3.12 python3 python; do
         if command -v "$candidate" >/dev/null 2>&1; then
             local ver
             ver=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
@@ -160,39 +160,80 @@ resolve_python() {
     case "$PM" in
         apt)
             sudo apt-get update -qq 2>/dev/null
-            # Try deadsnakes PPA on Ubuntu if direct install fails
-            if ! sudo apt-get install -y python3.13 python3.13-venv python3.13-dev 2>/dev/null; then
-                warn "Trying deadsnakes PPA..."
-                sudo apt-get install -y software-properties-common 2>/dev/null
-                sudo add-apt-repository -y ppa:deadsnakes/ppa 2>/dev/null
+            # Try direct install first (works on Ubuntu 24.04+, Debian 13+)
+            if sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
+                ok "Python 3.12 installed directly."
+            else
+                warn "Direct install failed — trying deadsnakes PPA..."
+                # Import deadsnakes signing key first (required on Debian 12 Bookworm)
+                sudo apt-get install -y software-properties-common curl gpg 2>/dev/null || true
+                # Import the key
+                curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
+                    | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/deadsnakes.gpg 2>/dev/null || true
+                # Detect distro codename — Debian 12 maps to Ubuntu jammy for deadsnakes
+                local CODENAME
+                CODENAME=$(lsb_release -cs 2>/dev/null || echo "")
+                # deadsnakes doesn't have a 'bookworm' suite — use 'jammy' as the target
+                if [ "$CODENAME" = "bookworm" ] || [ "$CODENAME" = "bullseye" ] || [ "$CODENAME" = "buster" ]; then
+                    PPA_SUITE="jammy"
+                else
+                    PPA_SUITE="$CODENAME"
+                fi
+                # Add PPA source
+                echo "deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${PPA_SUITE} main" \
+                    | sudo tee /etc/apt/sources.list.d/deadsnakes-ppa.list > /dev/null
                 sudo apt-get update -qq 2>/dev/null
-                sudo apt-get install -y python3.13 python3.13-venv python3.13-dev 2>/dev/null \
-                    || die "Could not install Python 3.13. Install it manually and re-run."
+                sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null \
+                    || die "Could not install Python 3.12. Try manually: sudo apt install python3.12 python3.12-venv"
             fi
             ;;
         dnf)
-            sudo dnf install -y python3.13 python3.13-devel 2>/dev/null \
-                || die "Could not install Python 3.13 via dnf."
+            # RHEL 8: Python 3.12 needs EPEL + CRB (CodeReady Builder)
+            # RHEL 9: Available in EPEL or AppStream depending on minor version
+            local RHEL_VER
+            RHEL_VER=$(rpm -E '%{rhel}' 2>/dev/null || echo "0")
+
+            # Enable CRB (required by EPEL on RHEL 8/9)
+            if command -v subscription-manager >/dev/null 2>&1; then
+                sudo subscription-manager repos --enable "codeready-builder-for-rhel-${RHEL_VER}-x86_64-rpms" 2>/dev/null || true
+            fi
+            # Enable CRB via dnf config-manager (works on RHEL 9 and Rocky/Alma)
+            sudo dnf config-manager --set-enabled crb 2>/dev/null || \
+                sudo dnf config-manager --set-enabled powertools 2>/dev/null || true
+
+            # Install EPEL
+            sudo dnf install -y epel-release 2>/dev/null || \
+                sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_VER}.noarch.rpm" 2>/dev/null || true
+
+            sudo dnf update -y 2>/dev/null || true
+
+            # Try python3.12 package
+            sudo dnf install -y python3.12 python3.12-devel 2>/dev/null \
+                || sudo dnf install -y python3.12 2>/dev/null \
+                || die "Could not install Python 3.12 via dnf. Try: sudo dnf install python3.12"
             ;;
         yum)
-            sudo yum install -y python3.13 python3.13-devel 2>/dev/null \
-                || die "Could not install Python 3.13 via yum."
+            local RHEL_VER
+            RHEL_VER=$(rpm -E '%{rhel}' 2>/dev/null || echo "0")
+            sudo yum install -y epel-release 2>/dev/null || true
+            sudo yum install -y python3.12 python3.12-devel 2>/dev/null \
+                || die "Could not install Python 3.12 via yum. Try: sudo yum install python3.12"
             ;;
         brew)
-            brew install python@3.13 2>/dev/null \
-                || die "Could not install Python 3.13 via brew."
+            brew install python@3.12 2>/dev/null \
+                || die "Could not install Python 3.12 via brew."
             ;;
         *)
-            die "Cannot auto-install Python 3.13 with package manager '$PM'. Install it manually and re-run."
+            die "Cannot auto-install Python 3.12 with package manager '$PM'. Install it manually and re-run."
             ;;
     esac
 
     # Re-check after install
-    if command -v python3.13 >/dev/null 2>&1; then
-        PYTHON_BIN=$(command -v python3.13)
-        ok "Python 3.13 installed at $PYTHON_BIN"
+    if command -v python3.12 >/dev/null 2>&1; then
+        PYTHON_BIN=$(command -v python3.12)
+        ok "Python 3.12 installed at $PYTHON_BIN"
     else
-        die "Python 3.13 installation did not produce a python3.13 binary."
+        die "Python 3.12 installation did not produce a python3.12 binary."
     fi
 }
 
@@ -245,7 +286,7 @@ setup_venv() {
         elif command -v virtualenv >/dev/null 2>&1; then
             virtualenv -p "$PYTHON_BIN" "$VENV_DIR" \
                 && ok "Virtualenv created via virtualenv at $VENV_DIR" \
-                || die "Failed to create virtualenv. Check python3.13-venv is installed."
+                || die "Failed to create virtualenv. Check python3.12-venv is installed."
         else
             die "Failed to create virtualenv at $VENV_DIR."
         fi
@@ -307,7 +348,7 @@ install_deps() {
         echo -e "  ${YELLOW}This may take several minutes if building from source.${RESET}"
         echo ""
 
-        # Try pre-built wheel first (CPU — supports Python 3.13)
+        # Try pre-built wheel first (CPU — supports Python 3.12)
         if "$PIP" install llama-cpp-python --quiet 2>/dev/null; then
             ok "llama-cpp-python installed (pre-built wheel)"
         else
