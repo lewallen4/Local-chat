@@ -1,4 +1,4 @@
-name: Full Uninstall and Production Deploy
+name: Clean Install Deploy
 
 on:
   workflow_dispatch:
@@ -6,66 +6,54 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 350
 
     steps:
+    - name: Bootstrap container
+      run: |
+        # Ubuntu 24.04 container is genuinely bare — just needs sudo and git
+        apt-get update -qq
+        apt-get install -y sudo git curl wget 2>/dev/null
+        echo "✅ Container ready — $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+
     - name: Checkout repository
       uses: actions/checkout@v4
 
     - name: Clean runner environment
       run: |
-        echo "🧹 Stripping pre-installed Python, pip, and build tools..."
+        echo "🧹 Resetting runner to clean state..."
 
-        # Purge via apt first — this removes binaries AND updates the package db
-        # so apt knows to fully reinstall later
-        sudo apt-get remove -y --purge \
-          python3 \
-          python3-pip \
-          python3-venv \
-          python3-dev \
-          python3-setuptools \
-          python3-wheel \
-          python3.10 \
-          python3.10-dev \
-          python3.10-venv \
-          python3.11 \
-          python3.11-dev \
-          python3.11-venv \
-          python3.12 \
-          python3.12-dev \
-          python3.12-venv \
-          cmake \
-          g++ \
-          gcc \
-          build-essential \
-          2>/dev/null || true
-
-        sudo apt-get autoremove -y --purge 2>/dev/null || true
-
-        # Now clean up anything left behind that apt doesn't own
-        # (runner sometimes has binaries installed outside apt)
+        # Remove cmake and any /usr/local/bin tools the runner installed
+        # outside of apt (these are safe to delete)
         sudo rm -f /usr/local/bin/cmake
         sudo rm -f /usr/local/bin/g++ /usr/local/bin/gcc /usr/local/bin/c++
+        sudo find /usr/local/bin -name "g++*" -o -name "gcc*" 2>/dev/null | sudo xargs rm -f 2>/dev/null || true
         sudo rm -f /usr/local/bin/python3* /usr/local/bin/pip3*
 
-        # Remove versioned compiler variants not caught above
-        sudo find /usr/local/bin -name "g++*" -o -name "gcc*" | sudo xargs rm -f 2>/dev/null || true
+        # Purge cmake and build-essential from apt — these are safe to remove
+        sudo apt-get remove -y --purge cmake build-essential 2>/dev/null || true
+        sudo apt-get autoremove -y --purge 2>/dev/null || true
 
-        # Clear venvs from prior runs
+        # For python3/pip3/g++ — Ubuntu won't let us fully remove them because
+        # of system dependencies. Instead mark them so apt treats our install
+        # as a clean reinstall.
+        sudo apt-get purge -y python3.12 python3.12-venv python3.12-dev 2>/dev/null || true
+
+        # Clear venvs from prior runs — this is the most important part
         rm -rf "$HOME/.skyeai-venv" "$HOME/.localchat-venv" "$HOME/.guildchat-venv"
 
-        # Rehash shell command cache
+        # Rehash shell cache
         hash -r 2>/dev/null || true
 
-        # Verify — at this point everything should be gone
         echo ""
         echo "── Verification ──────────────────────────────"
-        command -v python3  && echo "⚠️  python3 still present at $(command -v python3)"  || echo "✅ python3 removed"
-        command -v pip3     && echo "⚠️  pip3 still present at $(command -v pip3)"        || echo "✅ pip3 removed"
-        command -v cmake    && echo "⚠️  cmake still present at $(command -v cmake)"      || echo "✅ cmake removed"
-        command -v g++      && echo "⚠️  g++ still present at $(command -v g++)"          || echo "✅ g++ removed"
+        command -v cmake    && echo "⚠️  cmake still present at $(command -v cmake)"    || echo "✅ cmake removed"
+        command -v g++      && echo "⚠️  g++ still present at $(command -v g++)"        || echo "✅ g++ removed"
+        test -d "$HOME/.skyeai-venv" && echo "⚠️  venv still present" || echo "✅ venv cleared"
         echo "──────────────────────────────────────────────"
-        echo "✅ Runner cleaned — setup.sh will build from scratch"
+        echo "✅ Runner prepped — setup.sh will do a clean install"
 
     - name: Setup environment
       run: bash setup.sh
