@@ -65,9 +65,14 @@ install_pkg() {
     local PACMAN_PKG="${6:-$APT_PKG}"
 
     warn "$DESC is not installed."
-    if ! ask "Attempt to install it now?"; then
-        fail "$DESC skipped. Some steps may not complete."
-        return 1
+    if [ -t 0 ]; then
+        # Interactive — ask first
+        if ! ask "Attempt to install it now?"; then
+            fail "$DESC skipped. Some steps may not complete."
+            return 1
+        fi
+    else
+        echo -e "  ${CYAN}→${RESET}  Non-interactive environment — installing $DESC automatically..."
     fi
 
     echo ""
@@ -160,10 +165,16 @@ resolve_python() {
         fi
     done
 
-    # Not found — prompt before installing
+    # Not found — prompt if interactive, auto-install if not (e.g. CI)
     warn "Python $PYTHON_TARGET not found on this machine."
-    if ! ask "Install Python $PYTHON_TARGET now?"; then
-        die "Python $PYTHON_TARGET is required. Install it manually and re-run."
+    if [ -t 0 ]; then
+        # Interactive terminal — ask first
+        if ! ask "Install Python $PYTHON_TARGET now?"; then
+            die "Python $PYTHON_TARGET is required. Install it manually and re-run."
+        fi
+    else
+        # Non-interactive (CI/GitHub Actions) — install automatically
+        echo -e "  ${CYAN}→${RESET}  Non-interactive environment detected — installing automatically..."
     fi
 
     echo ""
