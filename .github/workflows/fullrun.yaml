@@ -1,1 +1,129 @@
-test
+name: Full Uninstall and Production Deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Clean runner environment
+      run: |
+        echo "🧹 Stripping pre-installed Python, pip, and build tools..."
+
+        # Remove all system Python versions except the bare minimum needed
+        # to run apt itself (apt has no Python dependency on modern Ubuntu)
+        sudo apt-get remove -y --purge \
+          python3 \
+          python3-pip \
+          python3-venv \
+          python3-dev \
+          python3-setuptools \
+          python3-wheel \
+          python3.10 \
+          python3.10-dev \
+          python3.10-venv \
+          python3.11 \
+          python3.11-dev \
+          python3.11-venv \
+          python3.12 \
+          python3.12-dev \
+          python3.12-venv \
+          cmake \
+          g++ \
+          build-essential \
+          2>/dev/null || true
+
+        sudo apt-get autoremove -y 2>/dev/null || true
+
+        # Remove any pip or python binaries left behind in common locations
+        sudo rm -f /usr/bin/python3* /usr/bin/pip3* /usr/local/bin/python3* /usr/local/bin/pip3*
+
+        # Remove any existing venvs from prior runs
+        rm -rf "$HOME/.skyeai-venv" "$HOME/.localchat-venv"
+
+        # Verify everything is gone
+        echo ""
+        echo "── Verification ──────────────────────────────"
+        command -v python3  && echo "⚠️  python3 still present"  || echo "✅ python3 removed"
+        command -v pip3     && echo "⚠️  pip3 still present"     || echo "✅ pip3 removed"
+        command -v cmake    && echo "⚠️  cmake still present"    || echo "✅ cmake removed"
+        command -v g++      && echo "⚠️  g++ still present"      || echo "✅ g++ removed"
+        echo "──────────────────────────────────────────────"
+        echo "✅ Runner cleaned — setup.sh will build from scratch"
+
+    - name: Setup environment
+      run: bash setup.sh
+
+    - name: Pull model
+      run: bash model_pull.sh
+
+    - name: Setup ngrok
+      run: |
+        wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+        sudo tar xzf ngrok-v3-stable-linux-amd64.tgz -C /usr/local/bin
+        rm ngrok-v3-stable-linux-amd64.tgz
+        ngrok config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+        pkill ngrok 2>/dev/null || true
+        sleep 1
+        ngrok http 8000 --log=stdout > /tmp/ngrok.log 2>&1 &
+        sleep 5
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels \
+          | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+        echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+        echo "================================================"
+        echo "✅ NGROK TUNNEL ESTABLISHED"
+        echo "🌐 Public URL: $NGROK_URL"
+        echo "================================================"
+
+    - name: Launch server + keep alive
+      run: |
+        echo "🚀 Starting Skye-AI..."
+        echo "📡 Access via: ${{ env.NGROK_URL }}"
+
+        bash run.sh --lan &
+        SERVER_PID=$!
+
+        # Wait for server to come up
+        for i in $(seq 1 30); do
+          if curl -s http://localhost:8000 > /dev/null 2>&1; then
+            echo "✅ Server is up (attempt $i)"
+            break
+          fi
+          echo "  ⏳ attempt $i/30..."
+          sleep 2
+        done
+
+        echo ""
+        echo "================================================"
+        echo "🌐 Skye-AI is live at: ${{ env.NGROK_URL }}"
+        echo "================================================"
+
+        # Keepalive loop — restart server or tunnel if either dies
+        while true; do
+          sleep 60
+          echo "[$(date '+%H:%M:%S')] Running — ${{ env.NGROK_URL }}"
+
+          if ! curl -s http://localhost:4040/api/tunnels > /dev/null 2>&1; then
+            echo "⚠️  ngrok tunnel lost — restarting..."
+            pkill ngrok 2>/dev/null || true
+            sleep 1
+            ngrok http 8000 --log=stdout > /tmp/ngrok.log 2>&1 &
+            sleep 5
+            NEW_URL=$(curl -s http://localhost:4040/api/tunnels \
+              | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])" 2>/dev/null || echo "unknown")
+            echo "🔄 New URL: $NEW_URL"
+          fi
+
+          if ! kill -0 $SERVER_PID 2>/dev/null; then
+            echo "⚠️  Server died — restarting..."
+            bash run.sh --lan &
+            SERVER_PID=$!
+            echo "🔄 Server restarted (PID $SERVER_PID)"
+          fi
+        done
