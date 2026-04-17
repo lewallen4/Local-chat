@@ -16,8 +16,7 @@ jobs:
       run: |
         echo "🧹 Stripping pre-installed Python, pip, and build tools..."
 
-        # Remove all system Python versions except the bare minimum needed
-        # to run apt itself (apt has no Python dependency on modern Ubuntu)
+        # Remove via apt
         sudo apt-get remove -y --purge \
           python3 \
           python3-pip \
@@ -41,13 +40,25 @@ jobs:
 
         sudo apt-get autoremove -y 2>/dev/null || true
 
-        # Remove any pip or python binaries left behind in common locations
-        sudo rm -f /usr/bin/python3* /usr/bin/pip3* /usr/local/bin/python3* /usr/local/bin/pip3*
+        # Remove any binaries left behind in /usr/bin, /usr/local/bin
+        sudo rm -f /usr/bin/python3* /usr/bin/pip3*
+        sudo rm -f /usr/local/bin/python3* /usr/local/bin/pip3*
+        sudo rm -f /usr/local/bin/cmake /usr/bin/cmake
+        sudo rm -f /usr/local/bin/g++ /usr/bin/g++
+        sudo rm -f /usr/local/bin/gcc /usr/bin/gcc
+        sudo rm -f /usr/local/bin/c++ /usr/bin/c++
+
+        # Remove any versioned g++ and gcc variants (e.g. g++-13, gcc-13)
+        sudo rm -f /usr/bin/g++* /usr/local/bin/g++*
+        sudo rm -f /usr/bin/gcc* /usr/local/bin/gcc*
 
         # Remove any existing venvs from prior runs
         rm -rf "$HOME/.skyeai-venv" "$HOME/.localchat-venv"
 
-        # Verify everything is gone
+        # Rehash shell command cache
+        hash -r 2>/dev/null || true
+
+        # Verify
         echo ""
         echo "── Verification ──────────────────────────────"
         command -v python3  && echo "⚠️  python3 still present"  || echo "✅ python3 removed"
