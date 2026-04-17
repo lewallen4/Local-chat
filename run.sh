@@ -27,7 +27,7 @@ RELOAD="false"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVER_DIR="$SCRIPT_DIR/server"
 MODELS_DIR="$SERVER_DIR/models"
-VENV_DIR="$HOME/.localchat-venv"
+VENV_DIR="$HOME/.skyeai-venv"
 PYTHON="$VENV_DIR/bin/python"
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -166,8 +166,8 @@ get_lan_ip() {
 }
 
 # ── Export env vars ────────────────────────────────────────────────
-export LOCALCHAT_MODEL_PATH="$MODEL_PATH"
-export LOCALCHAT_MEMORY_PATH="$MODELS_DIR/memory.md"
+export SKYEAI_MODEL_PATH="$MODEL_PATH"
+export SKYEAI_MEMORY_PATH="$MODELS_DIR/memory.md"
 # Keep Haven-named vars for backward compat with app.py
 export HAVEN_MODEL_PATH="$MODEL_PATH"
 export HAVEN_MEMORY_PATH="$MODELS_DIR/memory.md"
