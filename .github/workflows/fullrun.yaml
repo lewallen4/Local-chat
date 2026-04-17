@@ -62,7 +62,10 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
         TZ: UTC
-      run: bash setup.sh
+      run: |
+         echo "################"
+         echo " "
+         bash setup.sh
 
     - name: Pull model
       run: bash model_pull.sh
