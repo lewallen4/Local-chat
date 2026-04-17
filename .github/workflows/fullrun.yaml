@@ -12,6 +12,9 @@ jobs:
 
     steps:
     - name: Bootstrap container
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        TZ: UTC
       run: |
         # Ubuntu 24.04 container is genuinely bare — just needs sudo and git
         apt-get update -qq
@@ -56,6 +59,9 @@ jobs:
         echo "✅ Runner prepped — setup.sh will do a clean install"
 
     - name: Setup environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        TZ: UTC
       run: bash setup.sh
 
     - name: Pull model
