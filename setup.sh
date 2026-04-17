@@ -182,7 +182,7 @@ resolve_python() {
         apt)
             sudo apt-get update -qq 2>/dev/null
             # Try direct install first (works on Ubuntu 24.04+, Debian 13+)
-            if sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
+            if sudo apt-get install -y --reinstall python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
                 ok "Python 3.12 installed directly."
             else
                 warn "Direct install failed — trying deadsnakes PPA..."
@@ -238,13 +238,19 @@ resolve_python() {
             ;;
     esac
 
-    # Re-check after install
-    if command -v python3.12 >/dev/null 2>&1; then
-        PYTHON_BIN=$(command -v python3.12)
-        ok "Python 3.12 installed at $PYTHON_BIN"
-    else
-        die "Python 3.12 installation did not produce a python3.12 binary."
-    fi
+    # Re-check after install — search common locations
+    for bin_path in \
+        "$(command -v python3.12 2>/dev/null)" \
+        /usr/bin/python3.12 \
+        /usr/local/bin/python3.12 \
+        /opt/homebrew/bin/python3.12; do
+        if [ -x "$bin_path" ]; then
+            PYTHON_BIN="$bin_path"
+            ok "Python 3.12 ready at $PYTHON_BIN"
+            return 0
+        fi
+    done
+    die "Python 3.12 installation did not produce a python3.12 binary. Try: sudo apt install --reinstall python3.12"
 }
 
 # ── Prerequisites ──────────────────────────────────────────────────
