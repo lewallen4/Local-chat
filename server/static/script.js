@@ -1396,7 +1396,7 @@ function showRecordingStatus(active) {
 
 // ── Page unload ───────────────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {
-    if (currentSessionId) navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
+    if (currentSessionId && exchangeCount > 0) navigator.sendBeacon(`/api/chat/${currentSessionId}/end`);
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────
