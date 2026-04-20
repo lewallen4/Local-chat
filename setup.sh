@@ -389,14 +389,15 @@ install_deps() {
     echo -e "  ${DIM}     Adds voice input/output to the chat UI. ~450MB of models.${RESET}"
     echo ""
 
-    _INSTALL_TTS=false
-    if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
-        # Non-interactive — skip TTS by default, can run tts_model_pull.sh separately
-        warn "Non-interactive shell — skipping TTS/STT install. Run bash tts_model_pull.sh to add it later."
-    elif ask "Install TTS/STT support now?"; then
-        _INSTALL_TTS=true
+    _INSTALL_TTS=true
+    if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+        # Interactive — ask first
+        if ! ask "Install TTS/STT support now?"; then
+            _INSTALL_TTS=false
+            warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
+        fi
     else
-        warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
+        echo -e "  ${CYAN}→${RESET}  Non-interactive shell — installing TTS/STT automatically..."
     fi
 
     if [ "$_INSTALL_TTS" = true ]; then
