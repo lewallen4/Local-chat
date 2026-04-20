@@ -2,7 +2,7 @@
 logger.py — Rotating file logger capped at 3000 lines.
 
 Logs model I/O, session events, knowledge queries, and errors
-to server/logs/local-chat.log. Oldest lines are trimmed when
+to server/logs/skye-ai.log. Oldest lines are trimmed when
 the file exceeds 3000 lines.
 
 Usage:
@@ -18,7 +18,7 @@ from datetime import datetime
 import threading
 
 LOG_DIR = Path("logs")
-LOG_FILE = LOG_DIR / "local-chat.log"
+LOG_FILE = LOG_DIR / "skye-ai.log"
 MAX_LINES = 3000
 
 _lock = threading.Lock()

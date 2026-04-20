@@ -17,6 +17,7 @@ from session_manager import SessionManager, is_returning_user, provision_user
 from summarizer import SessionSummarizer
 from knowledge_base import KnowledgeBase
 from logger import log, log_prompt, log_response, log_session, log_knowledge, log_summary, log_error
+from tts_engine import init_tts, init_stt, get_tts, get_stt
 
 app = FastAPI()
 
@@ -181,6 +182,12 @@ async def startup_event():
     if knowledge.ready:
         log("INFO", f"Knowledge base loaded: {knowledge.chunk_count} chunks")
     asyncio.create_task(cleanup_stale_sessions())
+
+    # TTS / STT — optional, non-blocking
+    import asyncio as _aio
+    loop = _aio.get_event_loop()
+    loop.run_in_executor(None, lambda: init_tts())
+    loop.run_in_executor(None, lambda: init_stt())
 
 
 # ── Routes ─────────────────────────────────────────────────────────
@@ -499,7 +506,7 @@ async def get_memory(user_id: str = ""):
 
 # ── Per-user settings ──────────────────────────────────────────────
 
-SETTINGS_DEFAULTS = {"temperature": 0.0, "thinking_enabled": False, "show_thoughts": True, "response_length": "medium"}
+SETTINGS_DEFAULTS = {"temperature": 0.0, "thinking_enabled": False, "show_thoughts": True, "response_length": "medium", "tts_enabled": False, "tts_buttons_visible": True}
 
 # ── Response length config ─────────────────────────────────────────
 RESPONSE_LENGTH_MAP = {
@@ -565,6 +572,12 @@ async def save_settings(user_id: str, request: Request):
         settings["thinking_enabled"] = bool(data["thinking_enabled"])
     if "show_thoughts" in data:
         settings["show_thoughts"] = bool(data["show_thoughts"])
+
+    # Validate and apply TTS settings
+    if "tts_enabled" in data:
+        settings["tts_enabled"] = bool(data["tts_enabled"])
+    if "tts_buttons_visible" in data:
+        settings["tts_buttons_visible"] = bool(data["tts_buttons_visible"])
 
     # Validate and apply response length
     if "response_length" in data:
@@ -633,6 +646,7 @@ async def delete_fact(user_id: str, request: Request):
         raise HTTPException(status_code=403, detail="Cannot remove the User ID fact")
 
     sm = SessionManager(user_id)
+    memory = sm.load_memory()
 
     # Find and remove the matching line from FACTS section
     # The fact is stored as "- {fact}" in memory.md
@@ -694,22 +708,70 @@ async def knowledge_search(q: str = ""):
     })
 
 
-@app.get("/api/debug/{session_id}")
-async def debug_session(session_id: str):
-    if session_id not in active_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-    session = active_sessions[session_id]
-    sm: SessionManager = session["session_manager"]
-    context = sm.prepare_context(session["messages"], session["context_memory"], arch=model_loader.arch)
+
+# ── TTS / STT ──────────────────────────────────────────────────────
+
+@app.get("/api/tts/status")
+async def tts_status():
+    """Return TTS and STT availability."""
+    tts = get_tts()
+    stt = get_stt()
     return JSONResponse({
-        "user_id": session["user_id"],
-        "message_count": len(session["messages"]),
-        "messages": session["messages"],
-        "prompt_preview": context["prompt"],
-        "prompt_length": len(context["prompt"]),
-        "memory_used": context["memory_used"],
-        "wal_exists": wal_path(session_id).exists(),
+        "tts_ready": tts is not None and tts.ready,
+        "stt_ready": stt is not None and stt.ready,
     })
+
+
+@app.post("/api/tts/speak")
+async def tts_speak(request: Request):
+    """
+    Synthesize text to WAV audio.
+    Body: { "text": "..." }
+    Returns: audio/wav stream
+    """
+    tts = get_tts()
+    if tts is None or not tts.ready:
+        raise HTTPException(status_code=503, detail="TTS engine not available")
+
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    text = data.get("text", "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="text is required")
+
+    wav_bytes = tts.synthesize(text)
+    if wav_bytes is None:
+        raise HTTPException(status_code=500, detail="TTS synthesis failed")
+
+    from fastapi.responses import Response
+    return Response(content=wav_bytes, media_type="audio/wav")
+
+
+@app.post("/api/stt/transcribe")
+async def stt_transcribe(request: Request):
+    """
+    Transcribe audio bytes to text.
+    Expects raw audio bytes in body with Content-Type header set appropriately.
+    Returns: { "text": "..." }
+    """
+    stt = get_stt()
+    if stt is None or not stt.ready:
+        raise HTTPException(status_code=503, detail="STT engine not available")
+
+    mime_type = request.headers.get("content-type", "audio/webm")
+    audio_bytes = await request.body()
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="No audio data received")
+
+    text = stt.transcribe(audio_bytes, mime_type=mime_type)
+    if text is None:
+        raise HTTPException(status_code=500, detail="Transcription failed or produced no text")
+
+    return JSONResponse({"text": text})
 
 
 if __name__ == "__main__":

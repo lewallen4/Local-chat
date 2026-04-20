@@ -46,7 +46,7 @@ SYSTEM_PROMPT_FALLBACK = (
 MAX_MEMORY_CHARS = 2000
 
 DEFAULT_MEMORY_TEMPLATE = """\
-# Local-chat Memory
+# Skye-AI Memory
 
 ## FACTS
 - User ID: {user_id}
