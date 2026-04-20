@@ -1,4 +1,4 @@
-# Local-chat Memory
+# Skye-AI Memory
 
 ## FACTS
 - User ID: {user_id}
