@@ -2009,3 +2009,180 @@ body {
     text-transform: uppercase;
     min-height: 1.2em;
 }
+
+/* ── TTS / Voice ───────────────────────────────────────────── */
+
+/* Per-message TTS play button — sits in bubble-meta row */
+.tts-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    padding: 0;
+    margin-left: 6px;
+    vertical-align: middle;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+}
+
+.tts-btn:hover {
+    color: var(--blue-bright);
+    background: rgba(46, 125, 209, 0.10);
+}
+
+.tts-btn.playing {
+    color: var(--blue-bright);
+}
+
+.tts-btn.played {
+    color: var(--blue-dim);
+}
+
+.tts-btn.played:hover {
+    color: var(--blue-bright);
+}
+
+.tts-btn.hidden { display: none; }
+
+/* Waveform bars inside TTS buttons — animated when playing */
+.tts-btn .waveform-icon rect {
+    transform-origin: bottom center;
+    transition: height 0.15s;
+}
+
+.tts-btn.playing .waveform-icon rect:nth-child(1) {
+    animation: wave-bar 0.8s ease-in-out infinite alternate;
+    animation-delay: 0.0s;
+}
+.tts-btn.playing .waveform-icon rect:nth-child(2) {
+    animation: wave-bar 0.8s ease-in-out infinite alternate;
+    animation-delay: 0.15s;
+}
+.tts-btn.playing .waveform-icon rect:nth-child(3) {
+    animation: wave-bar 0.8s ease-in-out infinite alternate;
+    animation-delay: 0.05s;
+}
+.tts-btn.playing .waveform-icon rect:nth-child(4) {
+    animation: wave-bar 0.8s ease-in-out infinite alternate;
+    animation-delay: 0.2s;
+}
+.tts-btn.playing .waveform-icon rect:nth-child(5) {
+    animation: wave-bar 0.8s ease-in-out infinite alternate;
+    animation-delay: 0.10s;
+}
+
+@keyframes wave-bar {
+    from { opacity: 0.5; }
+    to   { opacity: 1.0; }
+}
+
+/* PTT voice button in input bar */
+.voice-ptt-btn {
+    width: 36px;
+    height: 36px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border-mid);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.voice-ptt-btn:hover {
+    color: var(--blue-bright);
+    border-color: var(--border-accent);
+    background: var(--bg-active);
+}
+
+.voice-ptt-btn.recording {
+    background: rgba(240, 94, 94, 0.15);
+    border-color: var(--red);
+    color: var(--red);
+    box-shadow: 0 0 0 3px rgba(240, 94, 94, 0.18);
+    animation: ptt-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-ptt-btn.processing {
+    background: rgba(46, 125, 209, 0.12);
+    border-color: var(--blue-core);
+    color: var(--blue-bright);
+    cursor: wait;
+}
+
+@keyframes ptt-pulse {
+    0%, 100% { box-shadow: 0 0 0 3px rgba(240, 94, 94, 0.18); }
+    50%       { box-shadow: 0 0 0 6px rgba(240, 94, 94, 0.08); }
+}
+
+/* PTT waveform bars — animate while recording */
+.voice-ptt-btn.recording .waveform-icon rect:nth-child(1) {
+    animation: ptt-bar 0.6s ease-in-out infinite alternate; animation-delay: 0.0s;
+}
+.voice-ptt-btn.recording .waveform-icon rect:nth-child(2) {
+    animation: ptt-bar 0.6s ease-in-out infinite alternate; animation-delay: 0.1s;
+}
+.voice-ptt-btn.recording .waveform-icon rect:nth-child(3) {
+    animation: ptt-bar 0.6s ease-in-out infinite alternate; animation-delay: 0.05s;
+}
+.voice-ptt-btn.recording .waveform-icon rect:nth-child(4) {
+    animation: ptt-bar 0.6s ease-in-out infinite alternate; animation-delay: 0.15s;
+}
+.voice-ptt-btn.recording .waveform-icon rect:nth-child(5) {
+    animation: ptt-bar 0.6s ease-in-out infinite alternate; animation-delay: 0.08s;
+}
+
+@keyframes ptt-bar {
+    from { transform: scaleY(0.4); }
+    to   { transform: scaleY(1.0); }
+}
+
+/* Recording status indicator in input-meta bar */
+.recording-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--red);
+}
+
+.recording-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--red);
+    animation: rec-blink 1s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+@keyframes rec-blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+}
+
+/* bubble-meta flex row to fit TTS btn alongside timestamp */
+.bubble-meta {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.bubble-meta-time {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: var(--text-muted);
+}
+
+.message-row.user .bubble-meta { justify-content: flex-end; }

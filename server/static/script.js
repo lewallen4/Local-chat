@@ -1,4 +1,4 @@
-/* Local Chat — Frontend Script */
+/* Skye-AI — Frontend Script */
 
 // ── State ──────────────────────────────────────────────────────────
 let currentUserId    = null;
@@ -7,6 +7,17 @@ let isGenerating     = false;
 let exchangeCount    = 0;
 let activeReader     = null;
 let isViewingHistory = false;   // true when showing a past session read-only
+
+// ── TTS / STT state ───────────────────────────────────────────────
+let ttsEnabled        = false;   // voice mode: auto-play AI responses
+let ttsButtonsVisible = true;    // show waveform buttons on messages
+let ttsAvailable      = false;   // server TTS ready
+let sttAvailable      = false;   // server STT ready
+let currentAudio      = null;    // currently playing HTMLAudioElement
+let currentTtsBtn     = null;    // button that triggered current playback
+let mediaRecorder     = null;    // active MediaRecorder for PTT
+let isRecording       = false;
+let voiceMode         = false;   // true when in voice mode (auto-TTS responses)
 
 // ── DOM refs ───────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -152,13 +163,13 @@ function highlightCode(container) {
 
 // ── Theme ────────────────────────────────────────────────────────────
 function initTheme() {
-    const saved = localStorage.getItem('localchat-theme') || 'dark';
+    const saved = localStorage.getItem('skyeai-theme') || 'dark';
     applyTheme(saved);
 }
 
 function applyTheme(theme) {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('localchat-theme', theme);
+    localStorage.setItem('skyeai-theme', theme);
     // Swap highlight.js theme
     const darkSheet  = document.getElementById('hljs-theme-dark');
     const lightSheet = document.getElementById('hljs-theme-light');
@@ -206,7 +217,7 @@ function initIdGate() {
         return;
     }
 
-    const saved = sessionStorage.getItem('localchat-user-id');
+    const saved = sessionStorage.getItem('skyeai-user-id');
     if (saved) {
         enterApp(saved, false);
         return;
@@ -283,7 +294,7 @@ function showIdFeedback(type, text) {
 
 async function enterApp(userId, returning, pastSessions = []) {
     currentUserId = userId;
-    sessionStorage.setItem('localchat-user-id', userId);
+    sessionStorage.setItem('skyeai-user-id', userId);
 
     idGate.classList.add('hidden');
     appShell.classList.remove('hidden');
@@ -312,6 +323,7 @@ async function enterApp(userId, returning, pastSessions = []) {
 
     initTheme();
     setupEventListeners();
+    initTts();
     setStatus('loading', 'Connecting…');
     await loadMemory();
     await startSession();
@@ -529,7 +541,7 @@ async function sendMessage() {
     typingIndicator.classList.remove('hidden');
     scrollToBottom();
 
-    const { row, contentEl, metaEl } = createAssistantBubble();
+    const { row, contentEl, metaEl, timeEl } = createAssistantBubble();
     chatMessages.appendChild(row);
 
     contentEl.classList.add('streaming', 'markdown-body');
@@ -617,10 +629,16 @@ async function sendMessage() {
             contentEl.appendChild(mark);
         }
 
-        metaEl.textContent = formatTime(new Date());
+        finalizeBubble(timeEl, metaEl, fullResponse);
         exchangeCount++;
         updateCount();
         chatTitle.textContent = `Session ${currentSessionId.slice(0, 6)}`;
+
+        // Auto-TTS in voice mode
+        if (voiceMode && ttsAvailable && fullResponse.trim()) {
+            const btn = metaEl.querySelector('.tts-btn');
+            playTts(fullResponse, btn);
+        }
 
     } catch (err) {
         contentEl.classList.remove('streaming');
@@ -664,15 +682,22 @@ function appendMessage(role, text) {
     if (role === 'assistant') {
         content.classList.add('markdown-body');
         content.innerHTML = renderMarkdown(text);
-        // Defer highlight so DOM is settled
         requestAnimationFrame(() => highlightCode(content));
     } else {
         content.textContent = text;
     }
 
     const meta = document.createElement('div');
-    meta.className   = 'bubble-meta';
-    meta.textContent = formatTime(new Date());
+    meta.className = 'bubble-meta';
+
+    const timeSpan = document.createElement('span');
+    timeSpan.className   = 'bubble-meta-time';
+    timeSpan.textContent = formatTime(new Date());
+    meta.appendChild(timeSpan);
+
+    // TTS button — shown on both user and assistant messages
+    const ttsBtn = makeTtsButton(text);
+    if (ttsBtn) meta.appendChild(ttsBtn);
 
     bubble.appendChild(content);
     bubble.appendChild(meta);
@@ -700,12 +725,26 @@ function createAssistantBubble() {
     const meta = document.createElement('div');
     meta.className = 'bubble-meta';
 
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'bubble-meta-time';
+    meta.appendChild(timeSpan);
+    // TTS button placeholder — injected after streaming completes via finalizeBubble()
+
     bubble.appendChild(content);
     bubble.appendChild(meta);
     row.appendChild(avatar);
     row.appendChild(bubble);
 
-    return { row, contentEl: content, metaEl: meta };
+    return { row, contentEl: content, metaEl: meta, timeEl: timeSpan };
+}
+
+// Called after streaming finishes — stamps time and injects TTS button
+function finalizeBubble(timeEl, metaEl, fullText) {
+    if (timeEl) timeEl.textContent = formatTime(new Date());
+    if (metaEl && ttsAvailable) {
+        const btn = makeTtsButton(fullText);
+        if (btn) metaEl.appendChild(btn);
+    }
 }
 
 function appendSystemMsg(text) {
@@ -950,6 +989,27 @@ function initSettings() {
         });
     }
 
+    // TTS toggle listeners
+    const ttsEnabledToggle = $('tts-enabled-toggle');
+    const ttsButtonsToggle = $('tts-buttons-toggle');
+
+    if (ttsEnabledToggle) {
+        ttsEnabledToggle.addEventListener('change', () => {
+            ttsEnabled = ttsEnabledToggle.checked;
+            voiceMode  = ttsEnabled;
+            saveSetting({ tts_enabled: ttsEnabled });
+            const pttBtn = $('voice-ptt-btn');
+            if (pttBtn) pttBtn.classList.toggle('hidden', !ttsEnabled || !sttAvailable);
+        });
+    }
+    if (ttsButtonsToggle) {
+        ttsButtonsToggle.addEventListener('change', () => {
+            ttsButtonsVisible = ttsButtonsToggle.checked;
+            saveSetting({ tts_buttons_visible: ttsButtonsVisible });
+            applyTtsButtonVisibility();
+        });
+    }
+
     // Fact submission
     factSubmit.addEventListener('click', submitFact);
     factInput.addEventListener('keydown', e => {
@@ -976,6 +1036,16 @@ function initSettings() {
                 lengthSlider.value = idx >= 0 ? idx : 1;
                 updateLengthDisplay(parseInt(lengthSlider.value));
             }
+
+            // TTS settings
+            const ttsEnabledToggle  = $('tts-enabled-toggle');
+            const ttsButtonsToggle  = $('tts-buttons-toggle');
+            if (ttsEnabledToggle) ttsEnabledToggle.checked = data.tts_enabled ?? false;
+            if (ttsButtonsToggle) ttsButtonsToggle.checked = data.tts_buttons_visible ?? true;
+            ttsEnabled        = data.tts_enabled ?? false;
+            ttsButtonsVisible = data.tts_buttons_visible ?? true;
+            voiceMode         = ttsEnabled;
+            applyTtsButtonVisibility();
         } catch {}
     }
 
@@ -1075,6 +1145,254 @@ function initSettings() {
         } catch {}
     }
 }
+
+// ── TTS / STT ─────────────────────────────────────────────────────────
+
+// Check server availability and wire up PTT button
+async function initTts() {
+    try {
+        const res  = await fetch('/api/tts/status');
+        const data = await res.json();
+        ttsAvailable = data.tts_ready  ?? false;
+        sttAvailable = data.stt_ready  ?? false;
+
+        const statusLine = $('tts-status-line');
+        if (statusLine) {
+            const parts = [];
+            parts.push(`TTS: ${ttsAvailable ? '✓ ready' : '✗ unavailable'}`);
+            parts.push(`STT: ${sttAvailable ? '✓ ready' : '✗ unavailable'}`);
+            statusLine.textContent = parts.join('  ·  ');
+            statusLine.style.color = (ttsAvailable || sttAvailable)
+                ? 'var(--green)' : 'var(--text-muted)';
+        }
+    } catch {
+        ttsAvailable = false;
+        sttAvailable = false;
+    }
+
+    // Show PTT button only when TTS is on and STT is available
+    const pttBtn = $('voice-ptt-btn');
+    if (pttBtn) {
+        pttBtn.classList.toggle('hidden', !ttsEnabled || !sttAvailable);
+        initVoicePtt(pttBtn);
+    }
+}
+
+// ── TTS button factory ────────────────────────────────────────────────
+function makeTtsButton(text) {
+    if (!ttsAvailable) return null;
+
+    const btn = document.createElement('button');
+    btn.className = 'tts-btn' + (ttsButtonsVisible ? '' : ' hidden');
+    btn.title     = 'Read aloud';
+    btn.innerHTML = `<svg class="waveform-icon" width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <rect x="2"  y="9"  width="2" height="6"  rx="1" fill="currentColor"/>
+        <rect x="6"  y="5"  width="2" height="14" rx="1" fill="currentColor"/>
+        <rect x="10" y="2"  width="2" height="20" rx="1" fill="currentColor"/>
+        <rect x="14" y="5"  width="2" height="14" rx="1" fill="currentColor"/>
+        <rect x="18" y="9"  width="2" height="6"  rx="1" fill="currentColor"/>
+    </svg>`;
+
+    btn.addEventListener('click', () => playTts(text, btn));
+    return btn;
+}
+
+// ── TTS playback ──────────────────────────────────────────────────────
+async function playTts(text, btn) {
+    // Stop any currently playing audio
+    if (currentAudio) {
+        currentAudio.pause();
+        currentAudio = null;
+        if (currentTtsBtn) {
+            currentTtsBtn.classList.remove('playing');
+            // Keep 'played' state on the old button
+            currentTtsBtn.classList.add('played');
+            currentTtsBtn.title = 'Replay';
+        }
+        // If same button clicked again while playing — just stop
+        if (currentTtsBtn === btn) {
+            currentTtsBtn = null;
+            return;
+        }
+        currentTtsBtn = null;
+    }
+
+    if (!ttsAvailable) return;
+
+    btn.classList.add('playing');
+    btn.classList.remove('played');
+    currentTtsBtn = btn;
+
+    try {
+        const res = await fetch('/api/tts/speak', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ text }),
+        });
+
+        if (!res.ok) throw new Error(`TTS HTTP ${res.status}`);
+
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentAudio = audio;
+
+        audio.onended = () => {
+            URL.revokeObjectURL(url);
+            btn.classList.remove('playing');
+            btn.classList.add('played');
+            btn.title     = 'Replay';
+            if (currentTtsBtn === btn) currentTtsBtn = null;
+            currentAudio = null;
+        };
+
+        audio.onerror = () => {
+            URL.revokeObjectURL(url);
+            btn.classList.remove('playing');
+            if (currentTtsBtn === btn) currentTtsBtn = null;
+            currentAudio = null;
+        };
+
+        await audio.play();
+
+    } catch (err) {
+        console.error('TTS playback error:', err);
+        btn.classList.remove('playing');
+        if (currentTtsBtn === btn) currentTtsBtn = null;
+        currentAudio = null;
+    }
+}
+
+// ── Visibility helper ─────────────────────────────────────────────────
+function applyTtsButtonVisibility() {
+    document.querySelectorAll('.tts-btn').forEach(btn => {
+        btn.classList.toggle('hidden', !ttsButtonsVisible);
+    });
+}
+
+// ── PTT voice input ───────────────────────────────────────────────────
+function initVoicePtt(pttBtn) {
+    if (!sttAvailable || !navigator.mediaDevices) return;
+
+    let audioChunks = [];
+    let stream      = null;
+
+    const startRecording = async () => {
+        if (isRecording) return;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunks = [];
+
+            // Pick a supported MIME type
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : MediaRecorder.isTypeSupported('audio/webm')
+                    ? 'audio/webm'
+                    : 'audio/ogg';
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
+            mediaRecorder.ondataavailable = e => {
+                if (e.data.size > 0) audioChunks.push(e.data);
+            };
+            mediaRecorder.start(100); // collect in 100ms chunks
+            isRecording = true;
+
+            pttBtn.classList.add('recording');
+            pttBtn.title = 'Release to transcribe';
+
+            // Show recording indicator
+            showRecordingStatus(true);
+
+        } catch (err) {
+            console.error('Microphone access error:', err);
+            appendSystemMsg('⚠ Microphone access denied. Check browser permissions.');
+        }
+    };
+
+    const stopRecording = async () => {
+        if (!isRecording || !mediaRecorder) return;
+        isRecording = false;
+
+        pttBtn.classList.remove('recording');
+        pttBtn.classList.add('processing');
+        pttBtn.title = 'Transcribing…';
+        showRecordingStatus(false);
+
+        mediaRecorder.stop();
+        stream.getTracks().forEach(t => t.stop());
+
+        // Wait for final dataavailable event
+        await new Promise(res => { mediaRecorder.onstop = res; });
+
+        const mimeType = mediaRecorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunks, { type: mimeType });
+
+        mediaRecorder = null;
+        stream        = null;
+        audioChunks   = [];
+
+        try {
+            const res = await fetch('/api/stt/transcribe', {
+                method:  'POST',
+                headers: { 'Content-Type': mimeType },
+                body:    blob,
+            });
+
+            if (!res.ok) throw new Error(`STT HTTP ${res.status}`);
+            const data = await res.json();
+            const transcript = (data.text || '').trim();
+
+            if (transcript) {
+                // Drop into input box — user reviews before sending
+                userInput.value = transcript;
+                userInput.dispatchEvent(new Event('input')); // trigger auto-resize
+                userInput.focus();
+                sendButton.disabled = false;
+            } else {
+                appendSystemMsg('⚠ No speech detected — try again.');
+            }
+
+        } catch (err) {
+            console.error('STT error:', err);
+            appendSystemMsg('⚠ Transcription failed.');
+        } finally {
+            pttBtn.classList.remove('processing');
+            pttBtn.title = 'Hold to record voice message';
+        }
+    };
+
+    // Click to start, click again to stop (toggle)
+    pttBtn.addEventListener('click', async () => {
+        if (isRecording) {
+            await stopRecording();
+        } else {
+            await startRecording();
+        }
+    });
+}
+
+// ── Recording status indicator ────────────────────────────────────────
+function showRecordingStatus(active) {
+    // Re-use the typing indicator slot in input-meta
+    const typingEl = $('typing-indicator');
+    if (!typingEl) return;
+
+    if (active) {
+        typingEl.classList.remove('hidden');
+        typingEl.innerHTML = `<span class="recording-dot"></span><span>Recording…</span>`;
+        typingEl.style.color = 'var(--red)';
+    } else {
+        typingEl.innerHTML = `<span class="typing-dots"><span></span><span></span><span></span></span> Transcribing…`;
+        typingEl.style.color = 'var(--blue-bright)';
+        // Restore normal state when done (handled by caller)
+        setTimeout(() => {
+            typingEl.classList.add('hidden');
+            typingEl.innerHTML = `<span class="typing-dots"><span></span><span></span><span></span></span> Generating…`;
+            typingEl.style.color = '';
+        }, 3500);
+    }
+}
+
 
 // ── Page unload ───────────────────────────────────────────────────────
 window.addEventListener('beforeunload', () => {
