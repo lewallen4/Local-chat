@@ -33,7 +33,7 @@ RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KNOWLEDGE_DIR="$SCRIPT_DIR/server/knowledge"
-SERVER_URL="${LOCAL_CHAT_URL:-http://localhost:8000}"
+SERVER_URL="${SKYE_AI_URL:-http://localhost:8000}"
 
 echo ""
 echo -e "${CYAN}${BOLD}╔════════════════════════════════════════════╗${RESET}"

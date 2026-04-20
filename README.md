@@ -1,4 +1,4 @@
-# Local Chat
+# Skye-AI
 
 A self-hosted AI chat server built on FastAPI and llama.cpp. Fully local, multi-user, with persistent memory, session history, and a built-in knowledge base — no cloud APIs, no telemetry, no data leaving your machine.
 
@@ -20,7 +20,7 @@ Open `http://your-ip:8000` from any device on your network.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - A GGUF model file (downloaded via the included model puller)
 - Linux (Ubuntu/Debian, RHEL/Fedora) or macOS
 - Recommended: NVIDIA GPU with 8+ GB VRAM (CPU-only works but is slower)
@@ -33,7 +33,7 @@ Open `http://your-ip:8000` from any device on your network.
 bash setup.sh
 ```
 
-This creates a Python virtual environment at `~/.localchat-venv`, installs all dependencies (FastAPI, uvicorn, llama-cpp-python, etc.), and prepares the directory structure.
+This creates a Python virtual environment at `~/.skyeai-venv`, installs all dependencies (FastAPI, uvicorn, llama-cpp-python, etc.), and prepares the directory structure.
 
 ---
 
@@ -89,10 +89,10 @@ sudo bash install-service.sh --root   # runs as root
 The service starts on every boot, bound to `0.0.0.0:8000`.
 
 ```bash
-sudo systemctl status local-chat      # check status
-journalctl -u local-chat -f           # live logs
-sudo systemctl restart local-chat     # restart
-sudo systemctl stop local-chat        # stop
+sudo systemctl status skye-ai      # check status
+journalctl -u skye-ai -f           # live logs
+sudo systemctl restart skye-ai     # restart
+sudo systemctl stop skye-ai        # stop
 sudo bash install-service.sh remove   # uninstall
 ```
 
@@ -119,7 +119,7 @@ Each user gets their own workspace with isolated memory and session history. The
 
 ## Knowledge Base
 
-Make your AI an expert on your own documents. Local Chat can ingest Confluence XML exports, markdown files, and plain text, then retrieve relevant content at query time and inject it into the prompt.
+Make your AI an expert on your own documents. Skye-AI can ingest Confluence XML exports, markdown files, and plain text, then retrieve relevant content at query time and inject it into the prompt.
 
 No external embedding model or vector database required — it uses your loaded chat model to generate embeddings.
 
@@ -172,7 +172,7 @@ GET  /api/knowledge/search?q=query   # test retrieval
 ## Project Structure
 
 ```
-Local-chat/
+Skye-AI/
 ├── setup.sh                 # environment + dependency setup
 ├── run.sh                   # server launcher (foreground)
 ├── install-service.sh       # systemd service installer

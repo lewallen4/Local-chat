@@ -2,7 +2,7 @@
 # ============================================================
 #  Skye-AI — systemd Service Installer
 #
-#  Installs Local Chat as a background service that starts
+#  Installs Skye-AI as a background service that starts
 #  on every boot, bound to 0.0.0.0 for LAN access.
 #
 #  Usage:
@@ -11,10 +11,10 @@
 #    sudo bash install-service.sh remove   # disable + remove
 #
 #  After install:
-#    sudo systemctl status  local-chat
-#    sudo systemctl restart local-chat
-#    sudo systemctl stop    local-chat
-#    journalctl -u local-chat -f          # live logs
+#    sudo systemctl status  skye-ai
+#    sudo systemctl restart skye-ai
+#    sudo systemctl stop    skye-ai
+#    journalctl -u skye-ai -f          # live logs
 # ============================================================
 
 set -uo pipefail
@@ -27,7 +27,7 @@ BOLD='\033[1m'
 DIM='\033[2m'
 RESET='\033[0m'
 
-SERVICE_NAME="local-chat"
+SERVICE_NAME="skye-ai"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 RUN_AS_ROOT="false"
 
@@ -57,7 +57,7 @@ RUN_SCRIPT="$SCRIPT_DIR/run.sh"
 # ── Detect the user who owns the project (not root) ────────────────
 PROJECT_USER=$(stat -c '%U' "$SCRIPT_DIR" 2>/dev/null || stat -f '%Su' "$SCRIPT_DIR" 2>/dev/null)
 PROJECT_GROUP=$(stat -c '%G' "$SCRIPT_DIR" 2>/dev/null || stat -f '%Sg' "$SCRIPT_DIR" 2>/dev/null)
-VENV_DIR="/home/${PROJECT_USER}/.localchat-venv"
+VENV_DIR="/home/${PROJECT_USER}/.skyeai-venv"
 PYTHON="${VENV_DIR}/bin/python"
 
 # ── Override for root mode ─────────────────────────────────────────
@@ -66,8 +66,8 @@ if [ "$RUN_AS_ROOT" = "true" ]; then
     # or in root's home. Check project owner's first, fall back to root's.
     if [ -f "$PYTHON" ]; then
         : # found it under project owner's home, use it
-    elif [ -f "/root/.localchat-venv/bin/python" ]; then
-        VENV_DIR="/root/.localchat-venv"
+    elif [ -f "/root/.skyeai-venv/bin/python" ]; then
+        VENV_DIR="/root/.skyeai-venv"
         PYTHON="${VENV_DIR}/bin/python"
     fi
     PROJECT_USER="root"
@@ -112,7 +112,7 @@ echo ""
 # ── Write service file ─────────────────────────────────────────────
 cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=Local Chat — Skye-AI Server
+Description=Skye-AI Server
 After=network.target
 
 [Service]
@@ -123,9 +123,9 @@ WorkingDirectory=${SERVER_DIR}
 
 # Environment
 Environment="HAVEN_MODEL_PATH=${MODEL_PATH}"
-Environment="LOCALCHAT_MODEL_PATH=${MODEL_PATH}"
+Environment="SKYEAI_MODEL_PATH=${MODEL_PATH}"
 Environment="HAVEN_MEMORY_PATH=${SERVER_DIR}/models/memory.md"
-Environment="LOCALCHAT_MEMORY_PATH=${SERVER_DIR}/models/memory.md"
+Environment="SKYEAI_MEMORY_PATH=${SERVER_DIR}/models/memory.md"
 
 # Launch: LAN-accessible on port 8000
 ExecStart=${PYTHON} -m uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1

@@ -40,7 +40,12 @@ ok()    { echo -e "  ${GREEN}✓${RESET}  $1"; }
 warn()  { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
 die()   { echo -e "\n${RED}✗ Fatal:${RESET} $1\n"; exit 1; }
 fail()  { echo -e "  ${RED}✗${RESET}  $1"; SETUP_OK=false; }
-ask()   { read -rp "    → $1 (y/N): " _REPLY; [[ "$_REPLY" =~ ^[Yy]$ ]]; }
+ask()   { 
+    if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        return 0  # Auto-yes in CI / non-interactive shells
+    fi
+    read -rp "    → $1 (y/N): " _REPLY; [[ "$_REPLY" =~ ^[Yy]$ ]]
+}
 
 # ── Package manager detection ──────────────────────────────────────
 detect_pm() {
@@ -167,7 +172,7 @@ resolve_python() {
 
     # Not found — prompt if interactive, auto-install if not (e.g. CI)
     warn "Python $PYTHON_TARGET not found on this machine."
-    if [ -t 0 ]; then
+    if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
         # Interactive terminal — ask first
         if ! ask "Install Python $PYTHON_TARGET now?"; then
             die "Python $PYTHON_TARGET is required. Install it manually and re-run."
@@ -376,6 +381,28 @@ install_deps() {
     "$PIP" install sentencepiece --quiet 2>/dev/null \
         && ok "sentencepiece installed" \
         || warn "sentencepiece skipped (optional)"
+
+    # ── Optional: TTS + STT ────────────────────────────────────────
+    echo ""
+    echo -e "  ${CYAN}→${RESET}  Optional: TTS (Kokoro) + STT (Whisper)"
+    echo -e "  ${DIM}     Adds voice input/output to the chat UI. ~450MB of models.${RESET}"
+    echo ""
+
+    _INSTALL_TTS=false
+    if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+        # Non-interactive — skip TTS by default, can run tts_model_pull.sh separately
+        warn "Non-interactive shell — skipping TTS/STT install. Run bash tts_model_pull.sh to add it later."
+    elif ask "Install TTS/STT support now?"; then
+        _INSTALL_TTS=true
+    else
+        warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
+    fi
+
+    if [ "$_INSTALL_TTS" = true ]; then
+        "$PIP" install kokoro soundfile openai-whisper numpy --quiet \
+            && ok "TTS/STT packages installed" \
+            || warn "TTS/STT install failed — voice features will be disabled"
+    fi
 }
 
 # ── Directory structure ────────────────────────────────────────────
