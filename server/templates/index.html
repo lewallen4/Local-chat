@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Local Chat | Skye-AI</title>
+    <title>Skye-AI</title>
     <script>
         // Set theme before paint to prevent flash of wrong logo
         (function(){
-            var t = localStorage.getItem('localchat-theme') || 'dark';
+            var t = localStorage.getItem('skyeai-theme') || 'dark';
             document.documentElement.setAttribute('data-theme', t);
             window.__initialTheme = t;
         })();
@@ -27,9 +27,9 @@
     <div class="id-gate" id="id-gate">
         <div class="id-gate-card">
             <div class="id-gate-icon">
-                <img src="/static/logo_white.svg" class="theme-logo" width="28" height="28" alt="Local Chat">
+                <img src="/static/logo_white.svg" class="theme-logo" width="28" height="28" alt="Skye-AI">
             </div>
-            <h1 class="id-gate-title">Local Chat</h1>
+            <h1 class="id-gate-title">Skye-AI</h1>
             <p class="id-gate-sub">Enter your user ID to access your workspace.</p>
 
             <div class="id-input-row">
@@ -71,7 +71,7 @@
                     <div class="brand-icon">
                         <img src="/static/logo_white.svg" class="theme-logo" width="20" height="20" alt="">
                     </div>
-                    <span class="brand-name">Local Chat</span>
+                    <span class="brand-name">Skye-AI</span>
                     <span class="brand-tag" id="user-badge">—</span>
                 </div>
                 <button id="new-chat" class="btn-new-chat" title="New session (Ctrl+N)">
@@ -162,7 +162,7 @@
                     <div class="welcome-icon">
                         <img src="/static/logo_white.svg" class="theme-logo" width="40" height="40" alt="">
                     </div>
-                    <h2 id="welcome-heading">Local Chat is ready.</h2>
+                    <h2 id="welcome-heading">Skye-AI is ready.</h2>
                     <p id="welcome-sub">Your fully local AI assistant.</p>
                     <div class="welcome-hints">
                         <span class="hint">↵ Send</span>
@@ -174,7 +174,7 @@
 
             <div class="input-zone">
                 <div class="input-wrapper">
-                    <textarea id="user-input" placeholder="Message Local Chat..." rows="1" disabled></textarea>
+                    <textarea id="user-input" placeholder="Message Skye-AI..." rows="1" disabled></textarea>
                     <button id="send-button" disabled title="Send message">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                             <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor"
@@ -185,6 +185,15 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                             <rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor"
                                   stroke-width="2" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <button id="voice-ptt-btn" class="voice-ptt-btn hidden" title="Hold to record voice message">
+                        <svg class="waveform-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <rect x="2"  y="9"  width="2" height="6"  rx="1" fill="currentColor"/>
+                            <rect x="6"  y="5"  width="2" height="14" rx="1" fill="currentColor"/>
+                            <rect x="10" y="2"  width="2" height="20" rx="1" fill="currentColor"/>
+                            <rect x="14" y="5"  width="2" height="14" rx="1" fill="currentColor"/>
+                            <rect x="18" y="9"  width="2" height="6"  rx="1" fill="currentColor"/>
                         </svg>
                     </button>
                 </div>
@@ -263,6 +272,26 @@
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
+                </div>
+
+                <div class="settings-section">
+                    <label class="settings-label">Voice (TTS / STT)</label>
+                    <p class="settings-desc">Offline voice I/O using Kokoro TTS and Whisper STT. Run <span class="mono">tts_model_pull.sh</span> to install.</p>
+                    <div class="settings-toggle-row">
+                        <span class="settings-toggle-label">Enable voice mode (auto-TTS on AI responses)</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="tts-enabled-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div class="settings-toggle-row">
+                        <span class="settings-toggle-label">Show TTS buttons on messages</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="tts-buttons-toggle" checked>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <div id="tts-status-line" class="settings-desc" style="margin-top:8px; font-family: var(--font-mono); font-size: 0.7rem;"></div>
                 </div>
 
                 <div class="settings-section">
