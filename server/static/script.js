@@ -1274,14 +1274,18 @@ function applyTtsButtonVisibility() {
 function initVoicePtt(pttBtn) {
     if (!sttAvailable || !navigator.mediaDevices) return;
 
-    let audioChunks = [];
-    let stream      = null;
+    let audioChunks   = [];
+    let stream        = null;
+    let recordingStart = null;
+    const MIN_RECORD_MS   = 300;   // ignore releases under 300ms — accidental tap
+    const MIN_AUDIO_BYTES = 5000;  // ignore suspiciously small payloads
 
     const startRecording = async () => {
         if (isRecording) return;
         try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioChunks = [];
+            recordingStart = Date.now();
 
             // Pick a supported MIME type
             const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -1313,6 +1317,8 @@ function initVoicePtt(pttBtn) {
         if (!isRecording || !mediaRecorder) return;
         isRecording = false;
 
+        const heldMs = Date.now() - (recordingStart || 0);
+
         pttBtn.classList.remove('recording');
         pttBtn.classList.add('processing');
         pttBtn.title = 'Transcribing…';
@@ -1330,6 +1336,14 @@ function initVoicePtt(pttBtn) {
         mediaRecorder = null;
         stream        = null;
         audioChunks   = [];
+
+        // Too short or too small — almost certainly not real speech
+        if (heldMs < MIN_RECORD_MS || blob.size < MIN_AUDIO_BYTES) {
+            pttBtn.classList.remove('processing');
+            pttBtn.title = 'Hold to record voice message';
+            appendSystemMsg(`⚠ Hold the button while speaking (held ${heldMs}ms, ${blob.size} bytes).`);
+            return;
+        }
 
         try {
             const res = await fetch('/api/stt/transcribe', {
