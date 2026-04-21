@@ -158,7 +158,7 @@ bootstrap_pip() {
 resolve_python() {
     step "Resolving Python $PYTHON_TARGET"
 
-    # Check for existing 3.12
+    # ── 1. Already installed? ──────────────────────────────────────
     for candidate in python3.12 python3 python; do
         if command -v "$candidate" >/dev/null 2>&1; then
             local ver
@@ -171,29 +171,28 @@ resolve_python() {
         fi
     done
 
-    # Not found — prompt if interactive, auto-install if not (e.g. CI)
+    # ── 2. Not found — prompt or auto-proceed ─────────────────────
     warn "Python $PYTHON_TARGET not found on this machine."
     if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-        # Interactive terminal — ask first
         if ! ask "Install Python $PYTHON_TARGET now?"; then
             die "Python $PYTHON_TARGET is required. Install it manually and re-run."
         fi
     else
-        # Non-interactive (CI/GitHub Actions) — install automatically
-        echo -e "  ${CYAN}→${RESET}  Non-interactive environment detected — installing automatically..."
+        echo -e "  ${CYAN}→${RESET}  Non-interactive environment — installing automatically..."
     fi
 
+    # ── 3. Try package manager first ──────────────────────────────
     echo ""
+    local _pm_success=false
+
     case "$PM" in
         apt)
             sudo apt-get update -qq 2>/dev/null
-            # Try direct install first — works on Ubuntu 24.04 (noble) and Debian 13+
-            # Noble ships python3.12 in its default repos, no PPA needed
             if sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
-                ok "Python 3.12 installed directly."
+                ok "Python 3.12 installed via apt."
+                _pm_success=true
             else
-                # Only reach here on older Ubuntu/Debian that don't have 3.12 in default repos
-                warn "Direct install failed — trying deadsnakes PPA..."
+                warn "Direct apt install failed — trying deadsnakes PPA..."
                 sudo apt-get install -y software-properties-common curl gpg 2>/dev/null || true
                 curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
                     | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/deadsnakes.gpg 2>/dev/null || true
@@ -207,56 +206,180 @@ resolve_python() {
                 echo "deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${PPA_SUITE} main" \
                     | sudo tee /etc/apt/sources.list.d/deadsnakes-ppa.list > /dev/null
                 sudo apt-get update -qq 2>/dev/null
-                sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null \
-                    || die "Could not install Python 3.12. Try manually: sudo apt install python3.12 python3.12-venv"
+                if sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
+                    ok "Python 3.12 installed via deadsnakes PPA."
+                    _pm_success=true
+                else
+                    warn "deadsnakes PPA also failed — will build from source."
+                fi
             fi
             ;;
         dnf)
             local RHEL_VER
             RHEL_VER=$(rpm -E '%{rhel}' 2>/dev/null || echo "0")
-            # Enable CRB (required by EPEL on RHEL 8/9)
             if command -v subscription-manager >/dev/null 2>&1; then
                 sudo subscription-manager repos --enable "codeready-builder-for-rhel-${RHEL_VER}-x86_64-rpms" 2>/dev/null || true
             fi
             sudo dnf config-manager --set-enabled crb 2>/dev/null || \
                 sudo dnf config-manager --set-enabled powertools 2>/dev/null || true
-            # Install EPEL
             sudo dnf install -y epel-release 2>/dev/null || \
                 sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_VER}.noarch.rpm" 2>/dev/null || true
             sudo dnf update -y 2>/dev/null || true
-            sudo dnf install -y python3.12 python3.12-devel 2>/dev/null \
-                || sudo dnf install -y python3.12 2>/dev/null \
-                || die "Could not install Python 3.12 via dnf. Try: sudo dnf install python3.12"
+            if sudo dnf install -y python3.12 python3.12-devel 2>/dev/null \
+                || sudo dnf install -y python3.12 2>/dev/null; then
+                ok "Python 3.12 installed via dnf."
+                _pm_success=true
+            else
+                warn "dnf install failed — will build from source."
+            fi
             ;;
         yum)
             local RHEL_VER
             RHEL_VER=$(rpm -E '%{rhel}' 2>/dev/null || echo "0")
             sudo yum install -y epel-release 2>/dev/null || true
-            sudo yum install -y python3.12 python3.12-devel 2>/dev/null \
-                || die "Could not install Python 3.12 via yum. Try: sudo yum install python3.12"
+            if sudo yum install -y python3.12 python3.12-devel 2>/dev/null; then
+                ok "Python 3.12 installed via yum."
+                _pm_success=true
+            else
+                warn "yum install failed — will build from source."
+            fi
             ;;
         brew)
-            brew install python@3.12 2>/dev/null \
-                || die "Could not install Python 3.12 via brew."
+            if brew install python@3.12 2>/dev/null; then
+                ok "Python 3.12 installed via brew."
+                _pm_success=true
+            else
+                warn "brew install failed — will build from source."
+            fi
             ;;
         *)
-            die "Cannot auto-install Python 3.12 with package manager '$PM'. Install it manually and re-run."
+            warn "No supported package manager — will build from source."
             ;;
     esac
 
-    # Re-check after install — search common locations
-    for bin_path in \
-        "$(command -v python3.12 2>/dev/null)" \
-        /usr/bin/python3.12 \
-        /usr/local/bin/python3.12 \
-        /opt/homebrew/bin/python3.12; do
-        if [ -x "$bin_path" ]; then
-            PYTHON_BIN="$bin_path"
-            ok "Python 3.12 ready at $PYTHON_BIN"
-            return 0
-        fi
-    done
-    die "Python 3.12 installation did not produce a python3.12 binary. Try: sudo apt install --reinstall python3.12"
+    # ── 4. Re-check after package manager attempt ──────────────────
+    if [ "$_pm_success" = true ]; then
+        for bin_path in \
+            "$(command -v python3.12 2>/dev/null)" \
+            /usr/bin/python3.12 \
+            /usr/local/bin/python3.12 \
+            /opt/homebrew/bin/python3.12; do
+            if [ -x "$bin_path" ]; then
+                PYTHON_BIN="$bin_path"
+                ok "Python 3.12 ready at $PYTHON_BIN"
+                return 0
+            fi
+        done
+        warn "Package manager reported success but binary not found — falling back to source build."
+    fi
+
+    # ── 5. Source build fallback ───────────────────────────────────
+    _build_python_from_source
+}
+
+
+# ── Build Python 3.12.13 from source ──────────────────────────────
+_build_python_from_source() {
+    local PY_VERSION="3.12.13"
+    local PY_TARBALL="Python-${PY_VERSION}.tar.xz"
+    local PY_URL="https://www.python.org/ftp/python/${PY_VERSION}/${PY_TARBALL}"
+    local BUILD_DIR="/tmp/python-src-$$"
+    local INSTALL_PREFIX="/usr/local"
+
+    echo ""
+    echo -e "  ${CYAN}▶${RESET} ${BOLD}Building Python ${PY_VERSION} from source${RESET}"
+    echo -e "  ${DIM}  This takes 5–15 minutes depending on your machine.${RESET}"
+    echo ""
+
+    # Install build dependencies
+    echo -e "  ${CYAN}→${RESET}  Installing build dependencies..."
+    case "$PM" in
+        apt)
+            sudo apt-get install -y \
+                build-essential gcc make \
+                zlib1g-dev libffi-dev libssl-dev \
+                libbz2-dev libreadline-dev libsqlite3-dev \
+                liblzma-dev libncurses-dev uuid-dev \
+                --quiet 2>/dev/null \
+                && ok "Build deps installed" \
+                || warn "Some build deps may be missing — continuing anyway"
+            ;;
+        dnf|yum)
+            sudo "${PM}" install -y \
+                gcc make \
+                zlib-devel libffi-devel openssl-devel \
+                bzip2-devel readline-devel sqlite-devel \
+                xz-devel ncurses-devel uuid-devel \
+                2>/dev/null \
+                && ok "Build deps installed" \
+                || warn "Some build deps may be missing — continuing anyway"
+            ;;
+        brew)
+            brew install openssl readline xz zlib 2>/dev/null \
+                && ok "Build deps installed" \
+                || warn "Some brew deps may be missing — continuing anyway"
+            ;;
+    esac
+
+    # Download
+    mkdir -p "$BUILD_DIR"
+    echo -e "  ${CYAN}→${RESET}  Downloading ${PY_TARBALL}..."
+    if command -v curl >/dev/null 2>&1; then
+        curl -fL --progress-bar -o "$BUILD_DIR/$PY_TARBALL" "$PY_URL" \
+            || die "Failed to download Python tarball from $PY_URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --show-progress -O "$BUILD_DIR/$PY_TARBALL" "$PY_URL" \
+            || die "Failed to download Python tarball from $PY_URL"
+    else
+        die "Neither curl nor wget found — cannot download Python source."
+    fi
+    ok "Downloaded ${PY_TARBALL}"
+
+    # Extract
+    echo -e "  ${CYAN}→${RESET}  Extracting..."
+    tar -xJf "$BUILD_DIR/$PY_TARBALL" -C "$BUILD_DIR" \
+        || die "Failed to extract Python tarball"
+    local SRC_DIR="$BUILD_DIR/Python-${PY_VERSION}"
+
+    # Configure
+    echo -e "  ${CYAN}→${RESET}  Configuring (optimised build)..."
+    cd "$SRC_DIR"
+    ./configure \
+        --prefix="$INSTALL_PREFIX" \
+        --enable-optimizations \
+        --with-ensurepip=install \
+        --enable-shared \
+        LDFLAGS="-Wl,-rpath,$INSTALL_PREFIX/lib" \
+        --quiet \
+        || die "Python configure failed"
+
+    # Build
+    local CORES
+    CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+    echo -e "  ${CYAN}→${RESET}  Compiling with ${CORES} cores (this takes a while)..."
+    make -j"$CORES" --quiet \
+        || die "Python build failed"
+
+    # Install
+    echo -e "  ${CYAN}→${RESET}  Installing to ${INSTALL_PREFIX}..."
+    sudo make altinstall --quiet \
+        || die "Python install failed (try running setup.sh with sudo)"
+    ok "Python ${PY_VERSION} installed to ${INSTALL_PREFIX}/bin/python3.12"
+
+    # Cleanup
+    cd /
+    rm -rf "$BUILD_DIR"
+    ok "Build directory cleaned up"
+
+    # Verify
+    local BUILT_BIN="$INSTALL_PREFIX/bin/python3.12"
+    if [ -x "$BUILT_BIN" ]; then
+        PYTHON_BIN="$BUILT_BIN"
+        ok "Python 3.12 ready at $PYTHON_BIN"
+        return 0
+    fi
+
+    die "Python build completed but binary not found at $BUILT_BIN"
 }
 
 # ── Prerequisites ──────────────────────────────────────────────────
