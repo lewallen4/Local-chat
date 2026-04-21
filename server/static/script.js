@@ -1342,14 +1342,14 @@ function initVoicePtt(pttBtn) {
             const data = await res.json();
             const transcript = (data.text || '').trim();
 
-            if (transcript) {
+            if (data.no_speech || !transcript) {
+                appendSystemMsg('⚠ No speech detected — try again.');
+            } else {
                 // Drop into input box — user reviews before sending
                 userInput.value = transcript;
                 userInput.dispatchEvent(new Event('input')); // trigger auto-resize
                 userInput.focus();
                 sendButton.disabled = false;
-            } else {
-                appendSystemMsg('⚠ No speech detected — try again.');
             }
 
         } catch (err) {
