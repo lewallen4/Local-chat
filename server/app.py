@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -11,6 +11,14 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional
 from pathlib import Path
 import os
+import secrets
+
+try:
+    from itsdangerous import URLSafeSerializer, BadSignature
+    HAS_ITSDANGEROUS = True
+except ImportError:
+    HAS_ITSDANGEROUS = False
+    print("⚠  itsdangerous not installed — cookie signing disabled. Run: pip install itsdangerous")
 
 from model_loader import ModelLoader
 from session_manager import SessionManager, is_returning_user, provision_user
@@ -20,6 +28,59 @@ from logger import log, log_prompt, log_response, log_session, log_knowledge, lo
 from tts_engine import init_tts, init_stt, get_tts, get_stt
 
 app = FastAPI()
+
+# ── Cookie auth ────────────────────────────────────────────────────
+# Secret rotates each restart — fine for our use case since sessions
+# are in-memory anyway. Pin it via env var for persistence across restarts.
+_COOKIE_SECRET = os.environ.get("SKYEAI_COOKIE_SECRET", secrets.token_hex(32))
+_COOKIE_NAME   = "skyeai_uid"
+_COOKIE_MAX_AGE = 60 * 60 * 24  # 24 hours
+
+if HAS_ITSDANGEROUS:
+    _signer = URLSafeSerializer(_COOKIE_SECRET, salt="skyeai-uid")
+
+def _sign_user_id(user_id: str) -> str:
+    if HAS_ITSDANGEROUS:
+        return _signer.dumps(user_id)
+    return user_id  # unsigned fallback
+
+def _unsign_user_id(token: str) -> Optional[str]:
+    if HAS_ITSDANGEROUS:
+        try:
+            return _signer.loads(token)
+        except BadSignature:
+            return None
+    return token  # unsigned fallback
+
+def _set_uid_cookie(response: JSONResponse, user_id: str) -> None:
+    response.set_cookie(
+        key=_COOKIE_NAME,
+        value=_sign_user_id(user_id),
+        httponly=True,
+        samesite="strict",
+        max_age=_COOKIE_MAX_AGE,
+        path="/",
+    )
+
+def _get_uid_cookie(request: Request) -> Optional[str]:
+    token = request.cookies.get(_COOKIE_NAME)
+    if not token:
+        return None
+    return _unsign_user_id(token)
+
+def _require_uid(request: Request, user_id: str) -> None:
+    """
+    Raise 403 if the request's cookie doesn't match user_id.
+    If no cookie is set yet (e.g. first /check call) we allow through —
+    the cookie is only enforced after /api/chat/start has been called.
+    """
+    cookie_uid = _get_uid_cookie(request)
+    if cookie_uid is None:
+        # No cookie yet — allow, will be set on /start
+        return
+    if cookie_uid != user_id:
+        log("WARN", f"Cookie mismatch: cookie={cookie_uid} requested={user_id}")
+        raise HTTPException(status_code=403, detail="Access denied")
 
 app.add_middleware(
     CORSMiddleware,
@@ -281,7 +342,7 @@ async def start_chat(request: Request):
     for m in seeded:
         wal_append(session_id, m)
 
-    return JSONResponse({
+    response = JSONResponse({
         "session_id": session_id,
         "user_id": user_id,
         "returning": True,
@@ -289,6 +350,8 @@ async def start_chat(request: Request):
         "seeded_messages": len(seeded),
         "message": "Session started",
     })
+    _set_uid_cookie(response, user_id)
+    return response
 
 
 @app.post("/api/chat/rejoin")
@@ -316,12 +379,14 @@ async def rejoin_session(request: Request):
         session = active_sessions[session_id]
         session["last_active"] = datetime.now()
         log_session("rejoin", session_id, user_id, "already-active")
-        return JSONResponse({
+        resp = JSONResponse({
             "session_id": session_id,
             "user_id": user_id,
             "rejoined": True,
             "message_count": len(session["messages"]),
         })
+        _set_uid_cookie(resp, user_id)
+        return resp
 
     # End any other active session for this user first
     existing_sids = [
@@ -357,12 +422,14 @@ async def rejoin_session(request: Request):
 
     log_session("rejoin", session_id, user_id, f"from-disk messages={len(messages)}")
 
-    return JSONResponse({
+    resp = JSONResponse({
         "session_id": session_id,
         "user_id": user_id,
         "rejoined": True,
         "message_count": len(messages),
     })
+    _set_uid_cookie(resp, user_id)
+    return resp
 
 
 @app.post("/api/chat/{session_id}")
@@ -487,8 +554,9 @@ async def get_session_history(session_id: str):
 
 
 @app.get("/api/user/{user_id}/sessions")
-async def get_user_sessions(user_id: str):
+async def get_user_sessions(user_id: str, request: Request):
     """Return all past sessions for a user (for sidebar history)."""
+    _require_uid(request, user_id)
     if not validate_user_id(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     sm = SessionManager(user_id)
@@ -496,8 +564,10 @@ async def get_user_sessions(user_id: str):
 
 
 @app.get("/api/memory")
-async def get_memory(user_id: str = ""):
+async def get_memory(request: Request, user_id: str = ""):
     """Return memory for a specific user (pass ?user_id=...)."""
+    if user_id:
+        _require_uid(request, user_id)
     if not user_id or not validate_user_id(user_id):
         return JSONResponse({"memory": ""})
     sm = SessionManager(user_id)
@@ -539,7 +609,8 @@ def _save_settings(user_id: str, settings: dict) -> None:
 
 
 @app.get("/api/user/{user_id}/settings")
-async def get_settings(user_id: str):
+async def get_settings(user_id: str, request: Request):
+    _require_uid(request, user_id)
     if not validate_user_id(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     return JSONResponse(_load_settings(user_id))
@@ -547,6 +618,7 @@ async def get_settings(user_id: str):
 
 @app.post("/api/user/{user_id}/settings")
 async def save_settings(user_id: str, request: Request):
+    _require_uid(request, user_id)
     if not validate_user_id(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     try:
@@ -594,6 +666,7 @@ async def save_settings(user_id: str, request: Request):
 @app.post("/api/user/{user_id}/facts")
 async def add_fact(user_id: str, request: Request):
     """Add a fact to the FACTS section of the user's memory.md."""
+    _require_uid(request, user_id)
     if not validate_user_id(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     try:
@@ -632,6 +705,7 @@ async def add_fact(user_id: str, request: Request):
 @app.delete("/api/user/{user_id}/facts")
 async def delete_fact(user_id: str, request: Request):
     """Remove a fact from the FACTS section of the user's memory.md."""
+    _require_uid(request, user_id)
     if not validate_user_id(user_id):
         raise HTTPException(status_code=400, detail="Invalid user ID")
     try:
