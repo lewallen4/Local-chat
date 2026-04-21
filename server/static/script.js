@@ -1361,13 +1361,29 @@ function initVoicePtt(pttBtn) {
         }
     };
 
-    // Click to start, click again to stop (toggle)
-    pttBtn.addEventListener('click', async () => {
-        if (isRecording) {
-            await stopRecording();
-        } else {
-            await startRecording();
-        }
+    // True push-to-talk — hold to record, release to send
+    // Supports both mouse and touch
+    pttBtn.addEventListener('mousedown', async (e) => {
+        e.preventDefault();
+        await startRecording();
+    });
+
+    pttBtn.addEventListener('mouseup', async () => {
+        if (isRecording) await stopRecording();
+    });
+
+    pttBtn.addEventListener('mouseleave', async () => {
+        // Release if cursor drifts off button while holding
+        if (isRecording) await stopRecording();
+    });
+
+    pttBtn.addEventListener('touchstart', async (e) => {
+        e.preventDefault();
+        await startRecording();
+    }, { passive: false });
+
+    pttBtn.addEventListener('touchend', async () => {
+        if (isRecording) await stopRecording();
     });
 }
 
