@@ -65,10 +65,10 @@ jobs:
       run: |
          echo "################"
          echo " "
-         bash setup.sh
+         sudo bash setup.sh
 
     - name: Pull model
-      run: bash model_pull.sh
+      run: sudo bash model_pull.sh
 
     - name: Setup ngrok
       run: |
@@ -93,7 +93,7 @@ jobs:
         echo "🚀 Starting Skye-AI..."
         echo "📡 Access via: ${{ env.NGROK_URL }}"
 
-        bash run.sh --lan &
+        sudo bash run.sh --lan &
         SERVER_PID=$!
 
         # Wait for server to come up
