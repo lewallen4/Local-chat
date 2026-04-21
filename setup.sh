@@ -354,6 +354,7 @@ install_deps() {
         "python-multipart>=0.0.9" \
         "httpx>=0.27.0" \
         aiofiles \
+        itsdangerous \
         --quiet \
         && ok "FastAPI stack installed" \
         || fail "FastAPI stack installation failed. Check your network connection."
