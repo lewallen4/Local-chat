@@ -661,7 +661,7 @@ finish() {
     echo ""
     if [ "$SETUP_OK" = true ]; then
         echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-        echo -e "${GREEN}${BOLD}║           Setup complete!  ✓             ║${RESET}"
+        echo -e "${GREEN}${BOLD}║           Setup complete!  ✓                    ║${RESET}"
         echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
         echo ""
         echo "  Python:     $PYTHON_TARGET"
@@ -672,7 +672,7 @@ finish() {
         echo "  2. bash run.sh          — start the server"
     else
         echo -e "${YELLOW}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-        echo -e "${YELLOW}${BOLD}║      Setup completed with warnings  ⚠    ║${RESET}"
+        echo -e "${YELLOW}${BOLD}║      Setup completed with warnings  ⚠          ║${RESET}"
         echo -e "${YELLOW}${BOLD}╚══════════════════════════════════════════╝${RESET}"
         echo ""
         echo "  One or more steps did not complete."
