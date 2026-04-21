@@ -265,6 +265,7 @@ class STTEngine:
             return None
 
         import tempfile
+        import traceback
 
         # Determine file extension from mime type
         ext = ".webm"
@@ -275,14 +276,19 @@ class STTEngine:
         elif "mp4" in mime_type:
             ext = ".mp4"
 
+        print(f"  STT: received {len(audio_bytes)} bytes, mime={mime_type}, ext={ext}")
+
         with self._lock:
+            tmp_path = None
             try:
                 with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                     tmp.write(audio_bytes)
                     tmp_path = tmp.name
 
+                print(f"  STT: transcribing {tmp_path}...")
                 result = self._model.transcribe(tmp_path, language="en", fp16=False)
                 text = result.get("text", "").strip()
+                print(f"  STT: result → '{text[:80]}'" if text else "  STT: no text produced")
 
                 try:
                     os.unlink(tmp_path)
@@ -292,11 +298,13 @@ class STTEngine:
                 return text if text else None
 
             except Exception as e:
-                print(f"STT transcribe error: {e}")
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                print(f"STT transcribe error: {type(e).__name__}: {e}")
+                traceback.print_exc()
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
                 return None
 
 
