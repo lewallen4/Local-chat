@@ -462,6 +462,27 @@ check_prereqs() {
         install_pkg "curl" "curl" "curl" "curl" "curl" "curl" \
             || warn "Neither curl nor wget found. model_pull.sh will not work."
     fi
+
+    # ffmpeg — required for Whisper STT audio decoding
+    if command -v ffmpeg >/dev/null 2>&1; then
+        ok "ffmpeg: $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}')"
+    else
+        warn "ffmpeg not found — required for voice input (STT)."
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            if ask "Install ffmpeg now?"; then
+                install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
+                    && ok "ffmpeg installed" \
+                    || warn "ffmpeg install failed. Install manually: sudo apt install ffmpeg"
+            else
+                warn "Skipped — voice input will not work without ffmpeg."
+            fi
+        else
+            echo -e "  ${CYAN}→${RESET}  Non-interactive — installing ffmpeg automatically..."
+            install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
+                && ok "ffmpeg installed" \
+                || warn "ffmpeg install failed. Voice input will be unavailable."
+        fi
+    fi
 }
 
 # ── Virtual environment ────────────────────────────────────────────
