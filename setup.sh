@@ -31,7 +31,7 @@ PYTHON_BIN=""   # resolved later
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup             ║${RESET}"
+    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup                ║${RESET}"
     echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
     echo ""
 }
