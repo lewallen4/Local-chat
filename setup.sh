@@ -31,7 +31,7 @@ PYTHON_BIN=""   # resolved later
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup                ║${RESET}"
+    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup             ║${RESET}"
     echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
     echo ""
 }
@@ -248,26 +248,7 @@ _install_python312() {
                 ok "Python 3.12 installed via apt."
                 _pm_success=true
             else
-                warn "Direct apt install failed — trying deadsnakes PPA..."
-                sudo apt-get install -y software-properties-common curl gpg 2>/dev/null || true
-                curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xF23C5A6CF475977595C89F51BA6932366A755776" \
-                    | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/deadsnakes.gpg 2>/dev/null || true
-                local CODENAME
-                CODENAME=$(lsb_release -cs 2>/dev/null || echo "")
-                if [ "$CODENAME" = "bookworm" ] || [ "$CODENAME" = "bullseye" ] || [ "$CODENAME" = "buster" ]; then
-                    PPA_SUITE="jammy"
-                else
-                    PPA_SUITE="${CODENAME:-focal}"
-                fi
-                echo "deb https://ppa.launchpadcontent.net/deadsnakes/ppa/ubuntu ${PPA_SUITE} main" \
-                    | sudo tee /etc/apt/sources.list.d/deadsnakes-ppa.list > /dev/null
-                sudo apt-get update -qq 2>/dev/null
-                if sudo apt-get install -y python3.12 python3.12-venv python3.12-dev 2>/dev/null; then
-                    ok "Python 3.12 installed via deadsnakes PPA."
-                    _pm_success=true
-                else
-                    warn "deadsnakes PPA also failed — will try source build."
-                fi
+                warn "apt install failed — will try source build."
             fi
             ;;
         dnf)
@@ -661,12 +642,46 @@ finish() {
     echo ""
 }
 
+# ── Progress bar ────────────────────────────────────────────────────
+# Called between steps. Args: current step (1-based), total steps, label.
+progress() {
+    local CURRENT="$1"
+    local TOTAL="$2"
+    local LABEL="$3"
+    local BAR_WIDTH=40
+    local FILLED=$(( CURRENT * BAR_WIDTH / TOTAL ))
+    local EMPTY=$(( BAR_WIDTH - FILLED ))
+    local BAR=""
+    local i
+    for i in $(seq 1 $FILLED); do BAR="${BAR}█"; done
+    for i in $(seq 1 $EMPTY);  do BAR="${BAR}░"; done
+    local PCT=$(( CURRENT * 100 / TOTAL ))
+    echo ""
+    echo -e "  ${CYAN}${BAR}${RESET}  ${BOLD}${PCT}%${RESET}  ${DIM}${LABEL}${RESET}"
+    echo ""
+}
+
 # ── Main ───────────────────────────────────────────────────────────
+TOTAL_STEPS=6
+
 banner
+progress 0 $TOTAL_STEPS "starting up"
+
 check_prereqs
+progress 1 $TOTAL_STEPS "prerequisites done"
+
 resolve_python
+progress 2 $TOTAL_STEPS "python resolved"
+
 setup_venv
+progress 3 $TOTAL_STEPS "virtualenv ready"
+
 install_deps
+progress 4 $TOTAL_STEPS "dependencies installed"
+
 setup_dirs
+progress 5 $TOTAL_STEPS "directories ready"
+
 check_model
 finish
+progress 6 $TOTAL_STEPS "complete"
