@@ -31,7 +31,7 @@ PYTHON_BIN=""   # resolved later
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup                ║${RESET}"
+    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup             ║${RESET}"
     echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
     echo ""
 }
@@ -462,27 +462,6 @@ check_prereqs() {
         install_pkg "curl" "curl" "curl" "curl" "curl" "curl" \
             || warn "Neither curl nor wget found. model_pull.sh will not work."
     fi
-
-    # ffmpeg — required for Whisper STT audio decoding
-    if command -v ffmpeg >/dev/null 2>&1; then
-        ok "ffmpeg: $(ffmpeg -version 2>&1 | head -1 | awk '{print $3}')"
-    else
-        warn "ffmpeg not found — required for voice input (STT)."
-        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-            if ask "Install ffmpeg now?"; then
-                install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
-                    && ok "ffmpeg installed" \
-                    || warn "ffmpeg install failed. Install manually: sudo apt install ffmpeg"
-            else
-                warn "Skipped — voice input will not work without ffmpeg."
-            fi
-        else
-            echo -e "  ${CYAN}→${RESET}  Non-interactive — installing ffmpeg automatically..."
-            install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
-                && ok "ffmpeg installed" \
-                || warn "ffmpeg install failed. Voice input will be unavailable."
-        fi
-    fi
 }
 
 # ── Virtual environment ────────────────────────────────────────────
@@ -589,9 +568,48 @@ install_deps() {
     fi
 
     if [ "$_INSTALL_TTS" = true ]; then
-        "$PIP" install kokoro soundfile openai-whisper numpy --quiet \
-            && ok "TTS/STT packages installed" \
-            || warn "TTS/STT install failed — voice features will be disabled"
+
+        # ffmpeg — required for Whisper STT, install before whisper
+        if command -v ffmpeg >/dev/null 2>&1; then
+            ok "ffmpeg already installed"
+        else
+            echo -e "  ${CYAN}→${RESET}  Installing ffmpeg (required for Whisper STT)..."
+            if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+                if ask "Install ffmpeg now?"; then
+                    install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
+                        && ok "ffmpeg installed" \
+                        || warn "ffmpeg install failed — STT may not work. Try: sudo apt install ffmpeg"
+                else
+                    warn "Skipped ffmpeg — voice input will not work without it."
+                fi
+            else
+                install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
+                    && ok "ffmpeg installed" \
+                    || warn "ffmpeg install failed — STT may not work."
+            fi
+        fi
+
+        echo -e "  ${CYAN}→${RESET}  Installing kokoro (TTS engine)..."
+        "$PIP" install kokoro --quiet \
+            && ok "kokoro installed" \
+            || warn "kokoro install failed"
+
+        echo -e "  ${CYAN}→${RESET}  Installing soundfile..."
+        "$PIP" install soundfile --quiet \
+            && ok "soundfile installed" \
+            || warn "soundfile install failed"
+
+        echo -e "  ${CYAN}→${RESET}  Installing openai-whisper (STT engine — may take a moment)..."
+        "$PIP" install openai-whisper --quiet \
+            && ok "openai-whisper installed" \
+            || warn "openai-whisper install failed"
+
+        echo -e "  ${CYAN}→${RESET}  Installing numpy..."
+        "$PIP" install numpy --quiet \
+            && ok "numpy installed" \
+            || warn "numpy install failed"
+
+        ok "TTS/STT setup complete"
     fi
 }
 
