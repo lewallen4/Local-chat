@@ -31,7 +31,7 @@ PYTHON_BIN=""   # resolved later
 banner() {
     echo ""
     echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup                ║${RESET}"
+    echo -e "${CYAN}${BOLD}║         Skye-AI  —  Setup             ║${RESET}"
     echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
     echo ""
 }
@@ -299,7 +299,6 @@ _install_python312() {
         for bin_path in \
             "$(command -v python3.12 2>/dev/null)" \
             /usr/bin/python3.12 \
-            /usr/local/bin/python3.12 \
             /opt/homebrew/bin/python3.12; do
             if [ -x "$bin_path" ]; then
                 PYTHON_BIN="$bin_path"
@@ -322,14 +321,15 @@ _build_python_from_source() {
     local PY_TARBALL="Python-${PY_VERSION}.tar.xz"
     local PY_URL="https://www.python.org/ftp/python/${PY_VERSION}/${PY_TARBALL}"
     local BUILD_DIR="/tmp/python-src-$$"
-    local INSTALL_PREFIX="/usr/local"
+    local INSTALL_PREFIX="$SCRIPT_DIR/.python312"   # project-local, never touches the OS
 
     echo ""
     echo -e "  ${CYAN}▶${RESET} ${BOLD}Building Python ${PY_VERSION} from source${RESET}"
+    echo -e "  ${DIM}  Installs to: ${INSTALL_PREFIX}${RESET}"
     echo -e "  ${DIM}  This takes 5–15 minutes depending on your machine.${RESET}"
     echo ""
 
-    # Install build dependencies
+    # Install build dependencies (system packages only — compilers/headers, not Python itself)
     echo -e "  ${CYAN}→${RESET}  Installing build dependencies..."
     case "$PM" in
         apt)
@@ -381,7 +381,7 @@ _build_python_from_source() {
         || { rm -rf "$BUILD_DIR"; return 1; }
     local SRC_DIR="$BUILD_DIR/Python-${PY_VERSION}"
 
-    # Configure
+    # Configure — prefix is project-local, rpath baked in so shared lib is found at runtime
     echo -e "  ${CYAN}→${RESET}  Configuring..."
     cd "$SRC_DIR"
     ./configure \
@@ -389,7 +389,7 @@ _build_python_from_source() {
         --enable-optimizations \
         --with-ensurepip=install \
         --enable-shared \
-        LDFLAGS="-Wl,-rpath,$INSTALL_PREFIX/lib" \
+        LDFLAGS="-Wl,-rpath,${INSTALL_PREFIX}/lib" \
         --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
@@ -400,11 +400,12 @@ _build_python_from_source() {
     make -j"$CORES" --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
-    # Install
+    # Install — no sudo needed since we own the project directory
+    mkdir -p "$INSTALL_PREFIX"
     echo -e "  ${CYAN}→${RESET}  Installing to ${INSTALL_PREFIX}..."
-    sudo make altinstall --quiet \
+    make altinstall --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
-    ok "Python ${PY_VERSION} installed to ${INSTALL_PREFIX}/bin/python3.12"
+    ok "Python ${PY_VERSION} installed to ${INSTALL_PREFIX}"
 
     # Cleanup
     cd /
