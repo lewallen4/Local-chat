@@ -838,13 +838,21 @@ async def stt_transcribe(request: Request):
     mime_type = request.headers.get("content-type", "audio/webm")
     audio_bytes = await request.body()
 
+    log("INFO", f"STT request: {len(audio_bytes)} bytes mime={mime_type}")
+
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="No audio data received")
 
     text = stt.transcribe(audio_bytes, mime_type=mime_type)
     if text is None:
+        log("ERROR", f"STT transcription returned None for {len(audio_bytes)} bytes mime={mime_type}")
         raise HTTPException(status_code=500, detail="Transcription failed or produced no text")
 
+    if not text:
+        log("INFO", "STT: no speech detected")
+        return JSONResponse({"text": "", "no_speech": True})
+
+    log("INFO", f"STT result: '{text[:80]}'")
     return JSONResponse({"text": text})
 
 
