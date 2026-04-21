@@ -154,16 +154,30 @@ bootstrap_pip() {
     return 1
 }
 
-# ── Resolve or install Python 3.12 ────────────────────────────────
+# ── Resolve Python ────────────────────────────────────────────────
 resolve_python() {
-    step "Resolving Python $PYTHON_TARGET"
+    step "Resolving Python"
 
-    # ── 1. Already installed? ──────────────────────────────────────
-    for candidate in python3.12 python3 python; do
+    # ── Detect what's currently installed ─────────────────────────
+    local FOUND_BIN=""
+    local FOUND_VER=""
+
+    for candidate in python3 python python3.12 python3.11 python3.10; do
         if command -v "$candidate" >/dev/null 2>&1; then
             local ver
             ver=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
-            if [ "$ver" = "$PYTHON_TARGET" ]; then
+            local major minor
+            major=$(echo "$ver" | cut -d. -f1)
+            minor=$(echo "$ver" | cut -d. -f2)
+            # Accept Python 3.8 or higher
+            if [ "$major" = "3" ] && [ "${minor:-0}" -ge 8 ] 2>/dev/null; then
+                if [ -z "$FOUND_BIN" ]; then
+                    FOUND_BIN=$(command -v "$candidate")
+                    FOUND_VER="$ver"
+                fi
+            fi
+            # Prefer 3.12 if found
+            if [ "$ver" = "3.12" ]; then
                 PYTHON_BIN=$(command -v "$candidate")
                 ok "Found Python $ver at $PYTHON_BIN"
                 return 0
@@ -171,19 +185,61 @@ resolve_python() {
         fi
     done
 
-    # ── 2. Not found — prompt or auto-proceed ─────────────────────
-    warn "Python $PYTHON_TARGET not found on this machine."
-    if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-        if ! ask "Install Python $PYTHON_TARGET now?"; then
-            die "Python $PYTHON_TARGET is required. Install it manually and re-run."
+    # ── Decision logic ─────────────────────────────────────────────
+    if [ -n "$FOUND_BIN" ]; then
+        # We have a usable Python but not 3.12
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            # Interactive — ask what to do
+            echo ""
+            echo -e "  ${YELLOW}⚠${RESET}   Found Python ${FOUND_VER} at ${FOUND_BIN}"
+            echo -e "  ${DIM}    Python 3.12 is recommended but ${FOUND_VER} may work.${RESET}"
+            echo ""
+            if ask "Try with your current Python ${FOUND_VER}?"; then
+                PYTHON_BIN="$FOUND_BIN"
+                ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
+                return 0
+            fi
+            echo ""
+            if ask "Attempt to install Python 3.12 instead?"; then
+                _install_python312
+                return $?
+            fi
+            # User said no to both — use what we have
+            warn "Proceeding with Python ${FOUND_VER}. Things may or may not work."
+            PYTHON_BIN="$FOUND_BIN"
+            return 0
+        else
+            # Non-interactive — try 3.12 first, fall back to whatever is installed
+            echo -e "  ${CYAN}→${RESET}  Non-interactive: attempting Python 3.12 install first..."
+            if _install_python312; then
+                return 0
+            fi
+            # 3.12 install failed — fall back to current version
+            warn "Python 3.12 install failed — falling back to Python ${FOUND_VER}"
+            PYTHON_BIN="$FOUND_BIN"
+            ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
+            return 0
         fi
     else
-        echo -e "  ${CYAN}→${RESET}  Non-interactive environment — installing automatically..."
+        # Nothing usable found at all
+        warn "No usable Python found on this machine."
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            if ! ask "Attempt to install Python 3.12?"; then
+                die "Python is required. Install it manually and re-run."
+            fi
+        else
+            echo -e "  ${CYAN}→${RESET}  Non-interactive: installing Python 3.12..."
+        fi
+        _install_python312 || die "Could not install Python. Install it manually and re-run."
+        return 0
     fi
+}
 
-    # ── 3. Try package manager first ──────────────────────────────
-    echo ""
+
+# ── Install Python 3.12 via package manager, then source fallback ──
+_install_python312() {
     local _pm_success=false
+    echo ""
 
     case "$PM" in
         apt)
@@ -210,7 +266,7 @@ resolve_python() {
                     ok "Python 3.12 installed via deadsnakes PPA."
                     _pm_success=true
                 else
-                    warn "deadsnakes PPA also failed — will build from source."
+                    warn "deadsnakes PPA also failed — will try source build."
                 fi
             fi
             ;;
@@ -230,7 +286,7 @@ resolve_python() {
                 ok "Python 3.12 installed via dnf."
                 _pm_success=true
             else
-                warn "dnf install failed — will build from source."
+                warn "dnf install failed — will try source build."
             fi
             ;;
         yum)
@@ -241,7 +297,7 @@ resolve_python() {
                 ok "Python 3.12 installed via yum."
                 _pm_success=true
             else
-                warn "yum install failed — will build from source."
+                warn "yum install failed — will try source build."
             fi
             ;;
         brew)
@@ -249,15 +305,15 @@ resolve_python() {
                 ok "Python 3.12 installed via brew."
                 _pm_success=true
             else
-                warn "brew install failed — will build from source."
+                warn "brew install failed — will try source build."
             fi
             ;;
         *)
-            warn "No supported package manager — will build from source."
+            warn "No supported package manager — will try source build."
             ;;
     esac
 
-    # ── 4. Re-check after package manager attempt ──────────────────
+    # Re-check PATH after package manager attempt
     if [ "$_pm_success" = true ]; then
         for bin_path in \
             "$(command -v python3.12 2>/dev/null)" \
@@ -270,11 +326,12 @@ resolve_python() {
                 return 0
             fi
         done
-        warn "Package manager reported success but binary not found — falling back to source build."
+        warn "Package manager reported success but binary not found — trying source build."
     fi
 
-    # ── 5. Source build fallback ───────────────────────────────────
+    # Source build as last resort
     _build_python_from_source
+    return $?
 }
 
 
@@ -326,23 +383,25 @@ _build_python_from_source() {
     echo -e "  ${CYAN}→${RESET}  Downloading ${PY_TARBALL}..."
     if command -v curl >/dev/null 2>&1; then
         curl -fL --progress-bar -o "$BUILD_DIR/$PY_TARBALL" "$PY_URL" \
-            || die "Failed to download Python tarball from $PY_URL"
+            || { rm -rf "$BUILD_DIR"; return 1; }
     elif command -v wget >/dev/null 2>&1; then
         wget -q --show-progress -O "$BUILD_DIR/$PY_TARBALL" "$PY_URL" \
-            || die "Failed to download Python tarball from $PY_URL"
+            || { rm -rf "$BUILD_DIR"; return 1; }
     else
-        die "Neither curl nor wget found — cannot download Python source."
+        warn "Neither curl nor wget found — cannot download Python source."
+        rm -rf "$BUILD_DIR"
+        return 1
     fi
     ok "Downloaded ${PY_TARBALL}"
 
     # Extract
     echo -e "  ${CYAN}→${RESET}  Extracting..."
     tar -xJf "$BUILD_DIR/$PY_TARBALL" -C "$BUILD_DIR" \
-        || die "Failed to extract Python tarball"
+        || { rm -rf "$BUILD_DIR"; return 1; }
     local SRC_DIR="$BUILD_DIR/Python-${PY_VERSION}"
 
     # Configure
-    echo -e "  ${CYAN}→${RESET}  Configuring (optimised build)..."
+    echo -e "  ${CYAN}→${RESET}  Configuring..."
     cd "$SRC_DIR"
     ./configure \
         --prefix="$INSTALL_PREFIX" \
@@ -351,19 +410,19 @@ _build_python_from_source() {
         --enable-shared \
         LDFLAGS="-Wl,-rpath,$INSTALL_PREFIX/lib" \
         --quiet \
-        || die "Python configure failed"
+        || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
     # Build
     local CORES
     CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
     echo -e "  ${CYAN}→${RESET}  Compiling with ${CORES} cores (this takes a while)..."
     make -j"$CORES" --quiet \
-        || die "Python build failed"
+        || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
     # Install
     echo -e "  ${CYAN}→${RESET}  Installing to ${INSTALL_PREFIX}..."
     sudo make altinstall --quiet \
-        || die "Python install failed (try running setup.sh with sudo)"
+        || { cd /; rm -rf "$BUILD_DIR"; return 1; }
     ok "Python ${PY_VERSION} installed to ${INSTALL_PREFIX}/bin/python3.12"
 
     # Cleanup
@@ -379,8 +438,10 @@ _build_python_from_source() {
         return 0
     fi
 
-    die "Python build completed but binary not found at $BUILT_BIN"
+    warn "Source build completed but binary not found at $BUILT_BIN"
+    return 1
 }
+
 
 # ── Prerequisites ──────────────────────────────────────────────────
 check_prereqs() {
