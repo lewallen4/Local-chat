@@ -172,6 +172,19 @@ export SKYEAI_MEMORY_PATH="$MODELS_DIR/memory.md"
 export HAVEN_MODEL_PATH="$MODEL_PATH"
 export HAVEN_MEMORY_PATH="$MODELS_DIR/memory.md"
 
+# ── Cookie secret ──────────────────────────────────────────────────
+# Generated once and persisted to server/.cookie_secret so browser
+# sessions survive server restarts. Never committed to git.
+COOKIE_SECRET_FILE="$SERVER_DIR/.cookie_secret"
+if [ ! -f "$COOKIE_SECRET_FILE" ]; then
+    python3 -c "import secrets; print(secrets.token_hex(32))" > "$COOKIE_SECRET_FILE"
+    chmod 600 "$COOKIE_SECRET_FILE"
+    ok "Cookie secret generated at $COOKIE_SECRET_FILE"
+else
+    ok "Cookie secret loaded from $COOKIE_SECRET_FILE"
+fi
+export SKYEAI_COOKIE_SECRET="$(cat "$COOKIE_SECRET_FILE")"
+
 # ── Build uvicorn args ─────────────────────────────────────────────
 UVICORN_ARGS=(
     "app:app"
