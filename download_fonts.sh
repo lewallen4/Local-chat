@@ -65,24 +65,16 @@ download_font() {
 }
 
 # ── Lexend (variable) ─────────────────────────────────────────────
-# Source: github.com/googlefonts/lexend — OFL license
-echo -e "  ${BOLD}Lexend${RESET}"
 download_font "Lexend-variable.woff2" \
-    "https://github.com/googlefonts/lexend/raw/main/fonts/lexend/webfonts/Lexend%5BHEXP%2Cwght%5D.woff2"
+    "https://fonts.gstatic.com/s/lexend/v26/wlpwgwvFAVdoq2_v-6QU.woff2"
 
 # ── Syne (variable) ───────────────────────────────────────────────
-# Source: github.com/googlefonts/syne — OFL license
-echo ""
-echo -e "  ${BOLD}Syne${RESET}"
 download_font "Syne-variable.woff2" \
-    "https://github.com/googlefonts/syne/raw/main/fonts/variable/Syne%5Bwght%5D.woff2"
+    "https://fonts.gstatic.com/s/syne/v24/8vIH7w4qzmVxm2BL9A.woff2"
 
 # ── JetBrains Mono (variable) ─────────────────────────────────────
-# Source: github.com/JetBrains/JetBrainsMono — OFL license
-echo ""
-echo -e "  ${BOLD}JetBrains Mono${RESET}"
 download_font "JetBrainsMono-variable.woff2" \
-    "https://github.com/JetBrains/JetBrainsMono/raw/master/fonts/variable/JetBrainsMono%5Bwght%5D.woff2"
+    "https://fonts.gstatic.com/s/jetbrainsmono/v21/tDbV2o-flEEny0FZhsfKu5WU4xr2VwChvA.woff2"
 
 # ── Summary ───────────────────────────────────────────────────────
 echo ""
