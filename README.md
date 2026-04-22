@@ -195,7 +195,7 @@ Enable **Voice mode** in settings to have the AI automatically read every respon
 
 When voice mode is enabled and STT is available, a waveform button appears in the input bar next to the send button.
 
-**Hold** the button to record. **Release** to stop — Whisper transcribes the audio and drops the text into the input box for you to review before sending. If you're in voice mode the AI will also read its response back automatically.
+**Hold** the button to record. **Release** to stop — Whisper transcribes the audio and sends the text. If you're in voice mode the AI will also read its response back automatically.
 
 The button shows recording state (red pulse) while active and a processing state while transcribing.
 
