@@ -78,11 +78,11 @@ download_font "Syne-variable.woff2" \
     "https://fonts.gstatic.com/s/syne/v24/8vIH7w4qzmVxm2BL9A.woff2"
 
 # ── JetBrains Mono (variable) ─────────────────────────────────────
-# Source: Google Fonts CDN (v18)
+# Source: Google Fonts CDN (v24) - Corrected as of 2026-04-22
 echo ""
 echo -e "  ${BOLD}JetBrains Mono${RESET}"
 download_font "JetBrainsMono-variable.woff2" \
-    "https://fonts.gstatic.com/s/jetbrainsmono/v18/tDbV2o-flEEny0FZhsfKu5WU4zr3Ew.woff2"
+    "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbV2o-flEEny0FZhsfKu5WU4xD7OwE.woff2"
 
 # ── Summary ───────────────────────────────────────────────────────
 echo ""
