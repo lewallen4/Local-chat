@@ -13,10 +13,13 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Setup environment
-      run: bash setup.sh
+      run: sudo bash setup.sh
 
     - name: Pull model
-      run: bash model_pull.sh
+      run: sudo bash model_pull.sh
+
+    - name: Pull fonts
+      run: sudo bash download_fonts.sh
 
     - name: Setup ngrok
       run: |
@@ -43,7 +46,7 @@ jobs:
 
         # run.sh launches uvicorn; we run it in the background here
         # so we can add the keepalive loop below
-        bash run.sh --lan &
+        sudo bash run.sh --lan &
         SERVER_PID=$!
 
         # Wait for server to come up

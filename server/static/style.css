@@ -3,7 +3,32 @@
    Blue-professional, terminal-inspired, refined
    ============================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Lexend:wght@200;400;500;600;700&family=Syne:wght@600;700&display=swap');
+/* ── Local fonts (variable) ────────────────────────────────────── */
+/* Run download_fonts.sh once to populate server/static/fonts/     */
+
+@font-face {
+    font-family: 'Lexend';
+    src: url('/static/fonts/Lexend-variable.woff2') format('woff2-variations');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Syne';
+    src: url('/static/fonts/Syne-variable.woff2') format('woff2-variations');
+    font-weight: 400 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('/static/fonts/JetBrainsMono-variable.woff2') format('woff2-variations');
+    font-weight: 100 800;
+    font-style: normal;
+    font-display: swap;
+}
 
 /* ── Variables ─────────────────────────────────────────────── */
 :root {
