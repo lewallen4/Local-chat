@@ -1359,11 +1359,15 @@ function initVoicePtt(pttBtn) {
             if (data.no_speech || !transcript) {
                 appendSystemMsg('⚠ No speech detected — try again.');
             } else {
-                // Drop into input box — user reviews before sending
+                // In voice mode auto-send; otherwise drop into box for review
                 userInput.value = transcript;
                 userInput.dispatchEvent(new Event('input')); // trigger auto-resize
-                userInput.focus();
-                sendButton.disabled = false;
+                if (voiceMode) {
+                    sendMessage();
+                } else {
+                    userInput.focus();
+                    sendButton.disabled = false;
+                }
             }
 
         } catch (err) {
