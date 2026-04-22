@@ -65,16 +65,24 @@ download_font() {
 }
 
 # ── Lexend (variable) ─────────────────────────────────────────────
+# Source: Google Fonts CDN (v26)
+echo -e "  ${BOLD}Lexend${RESET}"
 download_font "Lexend-variable.woff2" \
     "https://fonts.gstatic.com/s/lexend/v26/wlpwgwvFAVdoq2_v-6QU.woff2"
 
 # ── Syne (variable) ───────────────────────────────────────────────
+# Source: Google Fonts CDN (v24)
+echo ""
+echo -e "  ${BOLD}Syne${RESET}"
 download_font "Syne-variable.woff2" \
     "https://fonts.gstatic.com/s/syne/v24/8vIH7w4qzmVxm2BL9A.woff2"
 
 # ── JetBrains Mono (variable) ─────────────────────────────────────
+# Source: Google Fonts CDN (v18)
+echo ""
+echo -e "  ${BOLD}JetBrains Mono${RESET}"
 download_font "JetBrainsMono-variable.woff2" \
-    "https://fonts.gstatic.com/s/jetbrainsmono/v21/tDbV2o-flEEny0FZhsfKu5WU4xr2VwChvA.woff2"
+    "https://fonts.gstatic.com/s/jetbrainsmono/v18/tDbV2o-flEEny0FZhsfKu5WU4zr3Ew.woff2"
 
 # ── Summary ───────────────────────────────────────────────────────
 echo ""
