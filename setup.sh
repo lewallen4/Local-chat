@@ -24,8 +24,11 @@ MODELS_DIR="$SERVER_DIR/models"
 VENV_DIR="$HOME/.skyeai-venv"
 SETUP_OK=true
 
-PYTHON_TARGET="3.12"
+# PYTHON_TARGET is set dynamically after resolve_python() runs.
+# It will reflect whatever version was actually found/installed.
+PYTHON_TARGET=""
 PYTHON_BIN=""   # resolved later
+PM=""           # resolved by detect_pm()
 
 # ── Helpers ────────────────────────────────────────────────────────
 banner() {
@@ -41,7 +44,7 @@ ok()    { echo -e "  ${GREEN}✓${RESET}  $1"; }
 warn()  { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
 die()   { echo -e "\n${RED}✗ Fatal:${RESET} $1\n"; exit 1; }
 fail()  { echo -e "  ${RED}✗${RESET}  $1"; SETUP_OK=false; }
-ask()   { 
+ask()   {
     if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
         return 0  # Auto-yes in CI / non-interactive shells
     fi
@@ -72,7 +75,6 @@ install_pkg() {
 
     warn "$DESC is not installed."
     if [ -t 0 ]; then
-        # Interactive — ask first
         if ! ask "Attempt to install it now?"; then
             fail "$DESC skipped. Some steps may not complete."
             return 1
@@ -158,71 +160,86 @@ bootstrap_pip() {
 resolve_python() {
     step "Resolving Python"
 
-    # ── Detect what's currently installed ─────────────────────────
     local FOUND_BIN=""
     local FOUND_VER=""
+    local PREFERRED_BIN=""
 
-    for candidate in python3 python python3.12 python3.11 python3.10; do
+    # Scan installed candidates — prefer 3.12, accept 3.8+
+    for candidate in python3.12 python3.11 python3.10 python3.9 python3.8 python3 python; do
         if command -v "$candidate" >/dev/null 2>&1; then
             local ver
-            ver=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null)
+            ver=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null) || continue
             local major minor
             major=$(echo "$ver" | cut -d. -f1)
             minor=$(echo "$ver" | cut -d. -f2)
-            # Accept Python 3.8 or higher
+
             if [ "$major" = "3" ] && [ "${minor:-0}" -ge 8 ] 2>/dev/null; then
+                # Track the first usable one as fallback
                 if [ -z "$FOUND_BIN" ]; then
                     FOUND_BIN=$(command -v "$candidate")
                     FOUND_VER="$ver"
                 fi
-            fi
-            # Prefer 3.12 if found
-            if [ "$ver" = "3.12" ]; then
-                PYTHON_BIN=$(command -v "$candidate")
-                ok "Found Python $ver at $PYTHON_BIN"
-                return 0
+                # Prefer 3.12 if found
+                if [ "$ver" = "3.12" ] && [ -z "$PREFERRED_BIN" ]; then
+                    PREFERRED_BIN=$(command -v "$candidate")
+                fi
             fi
         fi
     done
 
-    # ── Decision logic ─────────────────────────────────────────────
+    # If we found 3.12, use it immediately
+    if [ -n "$PREFERRED_BIN" ]; then
+        PYTHON_BIN="$PREFERRED_BIN"
+        PYTHON_TARGET="3.12"
+        ok "Found Python 3.12 at $PYTHON_BIN"
+        return 0
+    fi
+
     if [ -n "$FOUND_BIN" ]; then
-        # We have a usable Python but not 3.12
+        # We have something usable but not 3.12
         if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-            # Interactive — ask what to do
             echo ""
             echo -e "  ${YELLOW}⚠${RESET}   Found Python ${FOUND_VER} at ${FOUND_BIN}"
             echo -e "  ${DIM}    Python 3.12 is recommended but ${FOUND_VER} may work.${RESET}"
             echo ""
             if ask "Try with your current Python ${FOUND_VER}?"; then
                 PYTHON_BIN="$FOUND_BIN"
+                PYTHON_TARGET="$FOUND_VER"
                 ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
                 return 0
             fi
             echo ""
             if ask "Attempt to install Python 3.12 instead?"; then
-                _install_python312
-                return $?
+                if _install_python312; then
+                    return 0
+                fi
+                # Install failed — fall back to what we have
+                warn "Python 3.12 install failed — falling back to Python ${FOUND_VER}"
+                PYTHON_BIN="$FOUND_BIN"
+                PYTHON_TARGET="$FOUND_VER"
+                ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
+                return 0
             fi
             # User said no to both — use what we have
-            warn "Proceeding with Python ${FOUND_VER}. Things may or may not work."
+            warn "Proceeding with Python ${FOUND_VER}."
             PYTHON_BIN="$FOUND_BIN"
+            PYTHON_TARGET="$FOUND_VER"
             return 0
         else
-            # Non-interactive — try 3.12 first, fall back to whatever is installed
+            # Non-interactive — try 3.12 first, fall back gracefully
             echo -e "  ${CYAN}→${RESET}  Non-interactive: attempting Python 3.12 install first..."
             if _install_python312; then
                 return 0
             fi
-            # 3.12 install failed — fall back to current version
             warn "Python 3.12 install failed — falling back to Python ${FOUND_VER}"
             PYTHON_BIN="$FOUND_BIN"
+            PYTHON_TARGET="$FOUND_VER"
             ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
             return 0
         fi
     else
         # Nothing usable found at all
-        warn "No usable Python found on this machine."
+        warn "No usable Python (3.8+) found on this machine."
         if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
             if ! ask "Attempt to install Python 3.12?"; then
                 die "Python is required. Install it manually and re-run."
@@ -234,7 +251,6 @@ resolve_python() {
         return 0
     fi
 }
-
 
 # ── Install Python 3.12 via package manager, then source fallback ──
 _install_python312() {
@@ -255,12 +271,15 @@ _install_python312() {
             local RHEL_VER
             RHEL_VER=$(rpm -E '%{rhel}' 2>/dev/null || echo "0")
             if command -v subscription-manager >/dev/null 2>&1; then
-                sudo subscription-manager repos --enable "codeready-builder-for-rhel-${RHEL_VER}-x86_64-rpms" 2>/dev/null || true
+                sudo subscription-manager repos \
+                    --enable "codeready-builder-for-rhel-${RHEL_VER}-x86_64-rpms" 2>/dev/null || true
             fi
             sudo dnf config-manager --set-enabled crb 2>/dev/null || \
                 sudo dnf config-manager --set-enabled powertools 2>/dev/null || true
             sudo dnf install -y epel-release 2>/dev/null || \
-                sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_VER}.noarch.rpm" 2>/dev/null || true
+                sudo dnf install -y \
+                    "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${RHEL_VER}.noarch.rpm" \
+                    2>/dev/null || true
             sudo dnf update -y 2>/dev/null || true
             if sudo dnf install -y python3.12 python3.12-devel 2>/dev/null \
                 || sudo dnf install -y python3.12 2>/dev/null; then
@@ -300,8 +319,9 @@ _install_python312() {
             "$(command -v python3.12 2>/dev/null)" \
             /usr/bin/python3.12 \
             /opt/homebrew/bin/python3.12; do
-            if [ -x "$bin_path" ]; then
+            if [ -x "${bin_path:-}" ]; then
                 PYTHON_BIN="$bin_path"
+                PYTHON_TARGET="3.12"
                 ok "Python 3.12 ready at $PYTHON_BIN"
                 return 0
             fi
@@ -314,14 +334,13 @@ _install_python312() {
     return $?
 }
 
-
 # ── Build Python 3.12.13 from source ──────────────────────────────
 _build_python_from_source() {
     local PY_VERSION="3.12.13"
     local PY_TARBALL="Python-${PY_VERSION}.tar.xz"
     local PY_URL="https://www.python.org/ftp/python/${PY_VERSION}/${PY_TARBALL}"
     local BUILD_DIR="/tmp/python-src-$$"
-    local INSTALL_PREFIX="$SCRIPT_DIR/.python312"   # project-local, never touches the OS
+    local INSTALL_PREFIX="$SCRIPT_DIR/.python312"
 
     echo ""
     echo -e "  ${CYAN}▶${RESET} ${BOLD}Building Python ${PY_VERSION} from source${RESET}"
@@ -329,7 +348,6 @@ _build_python_from_source() {
     echo -e "  ${DIM}  This takes 5–15 minutes depending on your machine.${RESET}"
     echo ""
 
-    # Install build dependencies (system packages only — compilers/headers, not Python itself)
     echo -e "  ${CYAN}→${RESET}  Installing build dependencies..."
     case "$PM" in
         apt)
@@ -359,7 +377,6 @@ _build_python_from_source() {
             ;;
     esac
 
-    # Download
     mkdir -p "$BUILD_DIR"
     echo -e "  ${CYAN}→${RESET}  Downloading ${PY_TARBALL}..."
     if command -v curl >/dev/null 2>&1; then
@@ -375,13 +392,11 @@ _build_python_from_source() {
     fi
     ok "Downloaded ${PY_TARBALL}"
 
-    # Extract
     echo -e "  ${CYAN}→${RESET}  Extracting..."
     tar -xJf "$BUILD_DIR/$PY_TARBALL" -C "$BUILD_DIR" \
         || { rm -rf "$BUILD_DIR"; return 1; }
     local SRC_DIR="$BUILD_DIR/Python-${PY_VERSION}"
 
-    # Configure — prefix is project-local, rpath baked in so shared lib is found at runtime
     echo -e "  ${CYAN}→${RESET}  Configuring..."
     cd "$SRC_DIR"
     ./configure \
@@ -393,29 +408,26 @@ _build_python_from_source() {
         --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
-    # Build
     local CORES
     CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
     echo -e "  ${CYAN}→${RESET}  Compiling with ${CORES} cores (this takes a while)..."
     make -j"$CORES" --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
 
-    # Install — no sudo needed since we own the project directory
     mkdir -p "$INSTALL_PREFIX"
     echo -e "  ${CYAN}→${RESET}  Installing to ${INSTALL_PREFIX}..."
     make altinstall --quiet \
         || { cd /; rm -rf "$BUILD_DIR"; return 1; }
     ok "Python ${PY_VERSION} installed to ${INSTALL_PREFIX}"
 
-    # Cleanup
     cd /
     rm -rf "$BUILD_DIR"
     ok "Build directory cleaned up"
 
-    # Verify
     local BUILT_BIN="$INSTALL_PREFIX/bin/python3.12"
     if [ -x "$BUILT_BIN" ]; then
         PYTHON_BIN="$BUILT_BIN"
+        PYTHON_TARGET="3.12"
         ok "Python 3.12 ready at $PYTHON_BIN"
         return 0
     fi
@@ -424,13 +436,11 @@ _build_python_from_source() {
     return 1
 }
 
-
 # ── Prerequisites ──────────────────────────────────────────────────
 check_prereqs() {
     step "Checking prerequisites"
     detect_pm
 
-    # cmake
     if command -v cmake >/dev/null 2>&1; then
         ok "cmake: $(cmake --version | head -1)"
     else
@@ -438,7 +448,6 @@ check_prereqs() {
             || warn "cmake not installed. llama-cpp-python will try a pre-built wheel."
     fi
 
-    # C++ compiler
     if command -v g++ >/dev/null 2>&1 || command -v c++ >/dev/null 2>&1; then
         local CXX_VER
         CXX_VER=$(g++ --version 2>/dev/null | head -1 || c++ --version 2>/dev/null | head -1)
@@ -453,7 +462,6 @@ check_prereqs() {
             || warn "C++ compiler not installed. llama-cpp-python source build will fail."
     fi
 
-    # curl or wget
     if command -v curl >/dev/null 2>&1; then
         ok "curl available"
     elif command -v wget >/dev/null 2>&1; then
@@ -464,31 +472,87 @@ check_prereqs() {
     fi
 }
 
+# ── Create the virtualenv — with self-healing ──────────────────────
+_create_venv() {
+    # First attempt — straightforward
+    if "$PYTHON_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
+        ok "Virtualenv created at $VENV_DIR"
+        return 0
+    fi
+
+    # ensurepip / venv module is missing — install the right package and retry
+    local MINOR
+    MINOR=$(echo "$PYTHON_TARGET" | cut -d. -f2)
+    warn "venv creation failed — attempting to install python3.${MINOR}-venv..."
+
+    case "$PM" in
+        apt)
+            sudo apt-get update -qq 2>/dev/null
+            sudo apt-get install -y "python3.${MINOR}-venv" 2>/dev/null \
+                && ok "python3.${MINOR}-venv installed" \
+                || { fail "Could not install python3.${MINOR}-venv"; return 1; }
+            ;;
+        dnf|yum)
+            sudo "$PM" install -y "python3.${MINOR}" 2>/dev/null \
+                || { fail "Could not install python3 venv support via $PM"; return 1; }
+            ;;
+        brew)
+            # Homebrew Python always includes venv — if we're here something else is wrong
+            warn "brew Python should include venv; attempting reinstall..."
+            brew reinstall "python@${PYTHON_TARGET}" 2>/dev/null || true
+            ;;
+        *)
+            fail "Unknown package manager — install python3-venv manually and re-run."
+            return 1
+            ;;
+    esac
+
+    # Second attempt after installing venv package
+    if "$PYTHON_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
+        ok "Virtualenv created at $VENV_DIR (after installing venv package)"
+        return 0
+    fi
+
+    # Last resort: try the virtualenv PyPI package
+    if command -v virtualenv >/dev/null 2>&1; then
+        virtualenv -p "$PYTHON_BIN" "$VENV_DIR" \
+            && ok "Virtualenv created via 'virtualenv' at $VENV_DIR" \
+            && return 0
+    else
+        # Try to pip-install virtualenv into the system Python and retry
+        if "$PYTHON_BIN" -m pip install --user virtualenv --quiet 2>/dev/null; then
+            local VENV_BIN
+            VENV_BIN=$("$PYTHON_BIN" -m site --user-base 2>/dev/null)/bin/virtualenv
+            if [ -x "$VENV_BIN" ]; then
+                "$VENV_BIN" -p "$PYTHON_BIN" "$VENV_DIR" \
+                    && ok "Virtualenv created via pip-installed virtualenv at $VENV_DIR" \
+                    && return 0
+            fi
+        fi
+    fi
+
+    fail "All venv creation methods exhausted for Python ${PYTHON_TARGET}."
+    return 1
+}
+
 # ── Virtual environment ────────────────────────────────────────────
 setup_venv() {
     step "Setting up virtual environment (Python $PYTHON_TARGET)"
 
     if [ ! -d "$VENV_DIR" ]; then
-        if "$PYTHON_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
-            ok "Virtualenv created at $VENV_DIR"
-        elif command -v virtualenv >/dev/null 2>&1; then
-            virtualenv -p "$PYTHON_BIN" "$VENV_DIR" \
-                && ok "Virtualenv created via virtualenv at $VENV_DIR" \
-                || die "Failed to create virtualenv. Check python3.12-venv is installed."
-        else
-            die "Failed to create virtualenv at $VENV_DIR."
-        fi
+        _create_venv || die "Failed to create virtualenv. See warnings above."
     else
         local venv_ver
-        venv_ver=$("$VENV_DIR/bin/python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "unknown")
+        venv_ver=$("$VENV_DIR/bin/python" -c \
+            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" \
+            2>/dev/null || echo "unknown")
+
         if [ "$venv_ver" = "$PYTHON_TARGET" ]; then
             ok "Reusing existing virtualenv at $VENV_DIR (Python $venv_ver)"
         else
-            warn "Existing venv is Python $venv_ver, not $PYTHON_TARGET. Recreating..."
+            warn "Existing venv is Python $venv_ver, target is $PYTHON_TARGET. Recreating..."
             rm -rf "$VENV_DIR"
-            "$PYTHON_BIN" -m venv "$VENV_DIR" \
-                && ok "Virtualenv recreated at $VENV_DIR (Python $PYTHON_TARGET)" \
-                || die "Failed to recreate virtualenv."
+            _create_venv || die "Failed to recreate virtualenv."
         fi
     fi
 
@@ -498,7 +562,7 @@ setup_venv() {
     if [ ! -f "$PIP" ]; then
         warn "pip missing from virtualenv — bootstrapping..."
         bootstrap_pip "$PYTHON" \
-            || die "Could not bootstrap pip into the virtualenv. Delete $VENV_DIR and re-run."
+            || die "Could not bootstrap pip. Delete $VENV_DIR and re-run."
     fi
 
     "$PIP" install --upgrade pip --quiet 2>/dev/null \
@@ -558,7 +622,6 @@ install_deps() {
 
     _INSTALL_TTS=true
     if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-        # Interactive — ask first
         if ! ask "Install TTS/STT support now?"; then
             _INSTALL_TTS=false
             warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
@@ -569,7 +632,6 @@ install_deps() {
 
     if [ "$_INSTALL_TTS" = true ]; then
 
-        # ffmpeg — required for Whisper STT, install before whisper
         if command -v ffmpeg >/dev/null 2>&1; then
             ok "ffmpeg already installed"
         else
@@ -682,8 +744,7 @@ finish() {
     echo ""
 }
 
-# ── Progress bar ────────────────────────────────────────────────────
-# Called between steps. Args: current step (1-based), total steps, label.
+# ── Progress bar ───────────────────────────────────────────────────
 progress() {
     local CURRENT="$1"
     local TOTAL="$2"
