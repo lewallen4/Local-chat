@@ -121,22 +121,32 @@ fi
 MODEL_MB=$(du -m "$MODEL_PATH" | cut -f1)
 ok "Model: $MODEL_FILE (${MODEL_MB} MB)"
 
-# ── Jinja chat template detection ────────────────────────────────
-# Models that require use_jinja=True in llama-cpp-python for correct
-# chat template handling. Matched against the model filename.
-JINJA_MODELS=(
-    "granite-4.1"
-)
-
-USE_JINJA="0"
-for pattern in "${JINJA_MODELS[@]}"; do
-    if [[ "${MODEL_FILE,,}" == *"${pattern}"* ]]; then
-        USE_JINJA="1"
-        ok "Jinja chat template enabled (required for $pattern)"
-        break
+# ── Model family detection ───────────────────────────────────────
+# Identifies model family from filename for display only.
+# Stop sequences are handled automatically in model_loader.py by
+# reading general.architecture from GGUF metadata at load time.
+# granitehybrid (4.0 H) and granite (4.1) are both handled correctly.
+detect_model_family() {
+    local f="${1,,}"
+    if [[ "$f" == *"granite-4.0-h"* || "$f" == *"granitehybrid"* ]]; then
+        echo "IBM Granite 4.0 H (granitehybrid)"
+    elif [[ "$f" == *"granite-4.1"* ]]; then
+        echo "IBM Granite 4.1"
+    elif [[ "$f" == *"granite"* ]]; then
+        echo "IBM Granite"
+    elif [[ "$f" == *"gemma"* ]]; then
+        echo "Gemma"
+    elif [[ "$f" == *"mistral"* ]]; then
+        echo "Mistral"
+    elif [[ "$f" == *"llama"* ]]; then
+        echo "Llama"
+    else
+        echo "Unknown"
     fi
-done
-export SKYEAI_USE_JINJA="$USE_JINJA"
+}
+MODEL_FAMILY=$(detect_model_family "$MODEL_FILE")
+ok "Model family: $MODEL_FAMILY"
+export SKYEAI_USE_JINJA="0"
 
 # ── Port availability ─────────────────────────────────────────────
 port_in_use() {
@@ -214,7 +224,7 @@ if [ "$HOST" = "0.0.0.0" ]; then
 fi
 echo ""
 echo -e "  ${BOLD}Model:${RESET}   $MODEL_FILE"
-echo -e "  ${BOLD}Jinja:${RESET}   $([ "$USE_JINJA" = "1" ] && echo "enabled" || echo "disabled")"
+echo -e "  ${BOLD}Family:${RESET}  $MODEL_FAMILY"
 echo -e "  ${BOLD}Venv:${RESET}    $VENV_DIR"
 echo ""
 echo -e "  Press ${BOLD}Ctrl+C${RESET} to stop"
