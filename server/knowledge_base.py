@@ -37,10 +37,10 @@ except ImportError:
 KNOWLEDGE_DIR = Path("knowledge")
 INDEX_PATH = Path("knowledge_index.json")
 
-CHUNK_SIZE = 1000      # chars per chunk (roughly ~250 tokens)
-CHUNK_OVERLAP = 150    # overlap between consecutive chunks
-TOP_K = 6              # number of chunks to retrieve per query
-MAX_INJECT_CHARS = 4000  # max total chars injected into prompt
+CHUNK_SIZE = 500       # chars per chunk (roughly ~120 tokens)
+CHUNK_OVERLAP = 75     # overlap between consecutive chunks
+TOP_K = 3              # number of chunks to retrieve per query
+MAX_INJECT_CHARS = 1500  # max total chars injected into prompt
 
 
 # ── HTML stripper ──────────────────────────────────────────────────
