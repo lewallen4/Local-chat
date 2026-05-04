@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import AsyncGenerator, List, Dict, Any
 from pathlib import Path
 
@@ -106,14 +107,17 @@ class ModelLoader:
         if HAS_LLAMA_CPP:
             print(f"Loading model with llama.cpp: {self.model_path}")
             try:
+                _cpu_count = os.cpu_count() or 4
                 self.model = llama_cpp.Llama(
                     model_path=str(self.model_path),
-                    n_ctx=8192,
-                    n_threads=4,
+                    n_ctx=4096,
+                    n_threads=_cpu_count,
+                    n_threads_batch=_cpu_count,
                     n_gpu_layers=0,
                     verbose=False,
                     logits_all=False,
                     embedding=True,
+                    use_mlock=True,
                 )
                 self.backend = "llama.cpp"
 
