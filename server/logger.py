@@ -1,9 +1,14 @@
 """
-logger.py — Rotating file logger capped at 3000 lines.
+logger.py — Size-rotated file logger.
 
 Logs model I/O, session events, knowledge queries, and errors
-to server/logs/skye-ai.log. Oldest lines are trimmed when
-the file exceeds 3000 lines.
+to server/logs/skye-ai.log. When the active log exceeds
+MAX_BYTES, it's renamed to skye-ai.log.1 (replacing any prior
+.1) and a fresh skye-ai.log is started.
+
+This is dramatically faster than the previous read-rewrite
+approach: rotation is a single rename() syscall instead of
+reading and rewriting the entire file on every chat turn.
 
 Usage:
     from logger import log
@@ -15,11 +20,18 @@ Usage:
 
 from pathlib import Path
 from datetime import datetime
+import os
 import threading
 
 LOG_DIR = Path("logs")
 LOG_FILE = LOG_DIR / "skye-ai.log"
-MAX_LINES = 3000
+LOG_FILE_PREV = LOG_DIR / "skye-ai.log.1"
+
+# Roll once the active log gets above ~5 MB. With prompts averaging
+# 8KB and a couple of log entries per chat turn, this is roughly
+# 300 turns of headroom — plenty for live debugging without ever
+# blocking a request on a multi-megabyte rewrite.
+MAX_BYTES = 5 * 1024 * 1024
 
 _lock = threading.Lock()
 
@@ -46,28 +58,29 @@ def log(category: str, message: str) -> None:
 
     with _lock:
         try:
-            # Append the new entry
+            # Rotate before write if the active file is too big.
+            _rotate_if_needed()
             with open(LOG_FILE, "a", encoding="utf-8") as f:
                 f.write(formatted)
-
-            # Trim if over limit
-            _trim_if_needed()
         except Exception as e:
             # Don't crash the app if logging fails
             print(f"Log write error: {e}")
 
 
-def _trim_if_needed():
-    """Keep only the last MAX_LINES lines in the log file."""
+def _rotate_if_needed():
+    """
+    Rename active log to .1 if it has exceeded MAX_BYTES.
+    Single rename() is O(1) on the filesystem — no read or rewrite.
+    """
     try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            all_lines = f.readlines()
-
-        if len(all_lines) > MAX_LINES:
-            # Keep the last MAX_LINES, prepend a trim marker
-            trimmed = all_lines[-MAX_LINES:]
-            with open(LOG_FILE, "w", encoding="utf-8") as f:
-                f.writelines(trimmed)
+        if not LOG_FILE.exists():
+            return
+        if LOG_FILE.stat().st_size <= MAX_BYTES:
+            return
+        # Replace any prior backup atomically
+        if LOG_FILE_PREV.exists():
+            LOG_FILE_PREV.unlink()
+        os.rename(LOG_FILE, LOG_FILE_PREV)
     except Exception:
         pass
 
