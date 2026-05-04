@@ -589,8 +589,8 @@ SETTINGS_DEFAULTS = {"temperature": 0.0, "thinking_enabled": False, "show_though
 
 # ── Response length config ─────────────────────────────────────────
 RESPONSE_LENGTH_MAP = {
-    "short":      {"max_tokens": 1024, "prompt_hint": "Be very brief. Respond in 1-3 sentences max."},
-    "medium":     {"max_tokens": 1024, "prompt_hint": "Be concise but complete."},
+    "short":      {"max_tokens": 256,  "prompt_hint": "Be very brief. Respond in 1-3 sentences max."},
+    "medium":     {"max_tokens": 512,  "prompt_hint": "Be concise but complete."},
     "long":       {"max_tokens": 1024, "prompt_hint": "Be thorough and detailed."},
     "extra_long": {"max_tokens": 2048, "prompt_hint": "Provide a comprehensive, in-depth response with examples where helpful."},
     "epic":       {"max_tokens": 4096, "prompt_hint": "Provide an exhaustive, deeply detailed response. Cover all angles thoroughly with examples, edge cases, and nuance."},
