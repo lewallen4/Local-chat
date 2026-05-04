@@ -158,6 +158,8 @@ class SessionManager:
         # Build architecture-specific prompt
         if arch == "gemma4":
             prompt = self._build_gemma4_prompt(system_prompt, memory_block, knowledge_context, recent, thinking, length_hint)
+        elif arch in ("granite", "granitehybrid"):
+            prompt = self._build_granite_prompt(system_prompt, memory_block, knowledge_context, recent, length_hint)
         else:
             prompt = self._build_default_prompt(system_prompt, memory_block, knowledge_context, recent, length_hint)
 
@@ -222,6 +224,36 @@ class SessionManager:
         parts.append("<|turn>model")
 
         return "\n".join(parts)
+
+    def _build_granite_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict], length_hint: str = "") -> str:
+        """
+        IBM Granite 4.x role-tag chat template.
+        Format: <|start_of_role|>{role}<|end_of_role|>{content}<|end_of_text|>
+        Roles: system, user, assistant
+        Used by both granite (4.1 dense) and granitehybrid (4.0 H) GGUFs.
+        """
+        system_content = system_prompt
+        if length_hint:
+            system_content += f"\n\nRESPONSE STYLE: {length_hint}"
+        if knowledge_context:
+            system_content += "\n\n" + knowledge_context.strip()
+        if memory_block:
+            system_content += "\n\nCONTEXT FROM PREVIOUS SESSIONS:\n" + memory_block
+
+        parts = [f"<|start_of_role|>system<|end_of_role|>{system_content}<|end_of_text|>"]
+
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "assistant"
+            content = msg["content"].strip()
+            # Strip any thinking blocks from prior assistant turns
+            if role == "assistant":
+                content = _strip_think_blocks(content)
+            parts.append(f"<|start_of_role|>{role}<|end_of_role|>{content}<|end_of_text|>")
+
+        # Open the assistant turn for generation
+        parts.append("<|start_of_role|>assistant<|end_of_role|>")
+
+        return "".join(parts)
 
     def save_session_log(self, session_id: str, session_data: Dict) -> None:
         log_file = self.sessions_dir / f"session_{session_id}.json"

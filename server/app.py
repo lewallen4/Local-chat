@@ -94,8 +94,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 _model_path = os.environ.get("HAVEN_MODEL_PATH", "models/model.gguf")
+_embedding_model_path = os.environ.get("SKYEAI_EMBEDDING_MODEL_PATH", "")
 
-model_loader = ModelLoader(_model_path)
+model_loader = ModelLoader(_model_path, embedding_model_path=_embedding_model_path)
+
+# Single-instance inference lock — llama.cpp serializes generation internally
+# but doing it here keeps streaming output clean and prevents prefill thrashing
+# when two requests arrive at the same time on a 4-core box.
+_inference_lock = asyncio.Lock()
 summarizer = SessionSummarizer()
 summarizer.set_model(model_loader)
 knowledge = KnowledgeBase()
@@ -496,9 +502,12 @@ async def chat(session_id: str, request: Request):
     async def generate():
         full_response = ""
         try:
-            async for chunk in model_loader.generate_stream(full_context):
-                full_response += chunk
-                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+            # Serialize inference — only one chat generation in flight at a time.
+            # Prevents two prefills from contending for memory bandwidth.
+            async with _inference_lock:
+                async for chunk in model_loader.generate_stream(full_context):
+                    full_response += chunk
+                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
 
             yield f"data: {json.dumps({'done': True})}\n\n"
 
