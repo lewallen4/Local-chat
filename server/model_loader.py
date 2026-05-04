@@ -41,10 +41,21 @@ STOP_MAP = {
         "\n[INST]", "\n<|user|>",
         "User:", "Human:",
     ],
-    "granite": [
-        "\nUSER:", "\nUser:",
-        "\nHuman:", "User:", "Human:",
+    # IBM Granite 4.0 H / hybrid (granitehybrid architecture in GGUF metadata).
+    # Uses role-tag chat template identical to Granite 4.1.
+    # general.architecture = "granitehybrid"
+    "granitehybrid": [
         "<|end_of_text|>",
+        "<|start_of_role|>user",
+        "<|start_of_role|>system",
+    ],
+    # IBM Granite 4.1 dense (granite architecture in GGUF metadata).
+    # Uses same role-tag chat template as granitehybrid.
+    # general.architecture = "granite"
+    "granite": [
+        "<|end_of_text|>",
+        "<|start_of_role|>user",
+        "<|start_of_role|>system",
     ],
     "mistral": [
         "\n[INST]",
@@ -80,8 +91,8 @@ def _detect_stop_sequences(model) -> tuple:
     except Exception as e:
         print(f"  ⚠ Could not read model metadata: {e}")
 
-    # Match against known architectures (check gemma4 before gemma)
-    for key in ["gemma4", "gemma", "granite", "llama", "mistral"]:
+    # Match against known architectures (check granitehybrid before granite, gemma4 before gemma)
+    for key in ["gemma4", "gemma", "granitehybrid", "granite", "llama", "mistral"]:
         if key in arch:
             print(f"  → Detected architecture: {arch} → using '{key}' stop sequences")
             return key, STOP_MAP[key]
