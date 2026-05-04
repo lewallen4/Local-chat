@@ -186,8 +186,26 @@ get_lan_ip() {
     echo "your-ip"
 }
 
+# ── Embedding model resolution ────────────────────────────────────
+# Looks for a dedicated small embedding model in models/. RAG queries use
+# this instead of the chat model — the chat model would take 30s+ per
+# embed() call on CPU, the embedding model takes <100ms.
+EMBEDDING_FILE_DEFAULT="granite-embedding-30m-english.gguf"
+EMBEDDING_PATH=""
+EMB_CANDIDATES=$(find "$MODELS_DIR" -maxdepth 2 -iname "*embedding*.gguf" 2>/dev/null | sort)
+if [ -n "$EMB_CANDIDATES" ]; then
+    EMBEDDING_PATH=$(echo "$EMB_CANDIDATES" | head -1)
+    ok "Embedding model: $(basename "$EMBEDDING_PATH")"
+else
+    warn "No embedding model found in $MODELS_DIR"
+    warn "RAG search will not work until you download one."
+    warn "Suggested: $EMBEDDING_FILE_DEFAULT (30M params, <50MB)"
+    warn "  → bash model_pull.sh --embedding"
+fi
+
 # ── Export env vars ────────────────────────────────────────────────
 export SKYEAI_MODEL_PATH="$MODEL_PATH"
+export SKYEAI_EMBEDDING_MODEL_PATH="$EMBEDDING_PATH"
 export SKYEAI_MEMORY_PATH="$MODELS_DIR/memory.md"
 export HAVEN_MODEL_PATH="$MODEL_PATH"
 export HAVEN_MEMORY_PATH="$MODELS_DIR/memory.md"
