@@ -83,7 +83,6 @@ if [ ! -f "$PYTHON" ]; then
     read -rp "  Run setup.sh now? (y/N): " _RUN_SETUP
     if [[ "$_RUN_SETUP" =~ ^[Yy]$ ]]; then
         bash "$SCRIPT_DIR/setup.sh" || die "Setup failed. Fix errors above and re-run."
-        # Re-check after setup
         [ -f "$PYTHON" ] || die "Setup completed but virtualenv still not found."
     else
         exit 1
@@ -106,7 +105,6 @@ if [ ! -f "$MODEL_PATH" ]; then
         read -rp "  Run model_pull.sh now? (y/N): " _RUN_PULL
         if [[ "$_RUN_PULL" =~ ^[Yy]$ ]]; then
             bash "$SCRIPT_DIR/model_pull.sh" || die "Model download failed."
-            # Re-scan after download
             FALLBACK=$(find "$MODELS_DIR" -maxdepth 2 \( -name "*.gguf" -o -name "*.model" \) 2>/dev/null | sort | head -1)
             [ -n "$FALLBACK" ] || die "No model found after download. Check model_pull.sh output."
             MODEL_FILE="$(basename "$FALLBACK")"
@@ -123,8 +121,24 @@ fi
 MODEL_MB=$(du -m "$MODEL_PATH" | cut -f1)
 ok "Model: $MODEL_FILE (${MODEL_MB} MB)"
 
+# ── Jinja chat template detection ────────────────────────────────
+# Models that require use_jinja=True in llama-cpp-python for correct
+# chat template handling. Matched against the model filename.
+JINJA_MODELS=(
+    "granite-4.1"
+)
+
+USE_JINJA="0"
+for pattern in "${JINJA_MODELS[@]}"; do
+    if [[ "${MODEL_FILE,,}" == *"${pattern}"* ]]; then
+        USE_JINJA="1"
+        ok "Jinja chat template enabled (required for $pattern)"
+        break
+    fi
+done
+export SKYEAI_USE_JINJA="$USE_JINJA"
+
 # ── Port availability ─────────────────────────────────────────────
-# Try lsof first (most systems), fall back to ss (Linux), then netstat
 port_in_use() {
     if command -v lsof >/dev/null 2>&1; then
         lsof -iTCP:"$PORT" -sTCP:LISTEN -P -n >/dev/null 2>&1
@@ -133,7 +147,7 @@ port_in_use() {
     elif command -v netstat >/dev/null 2>&1; then
         netstat -tlnp 2>/dev/null | grep -q ":$PORT "
     else
-        return 1  # can't check — assume available
+        return 1
     fi
 }
 
@@ -144,19 +158,16 @@ ok "Port $PORT available"
 
 # ── LAN IP detection (cross-platform) ────────────────────────────
 get_lan_ip() {
-    # Try hostname -I (Linux)
     if command -v hostname >/dev/null 2>&1; then
         local IP
         IP=$(hostname -I 2>/dev/null | awk '{print $1}')
         [ -n "$IP" ] && echo "$IP" && return
     fi
-    # Try ipconfig getifaddr (macOS)
     if command -v ipconfig >/dev/null 2>&1; then
         local IP
         IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
         [ -n "$IP" ] && echo "$IP" && return
     fi
-    # Try ip route (modern Linux without hostname -I)
     if command -v ip >/dev/null 2>&1; then
         local IP
         IP=$(ip route get 1 2>/dev/null | awk '{print $7; exit}')
@@ -168,13 +179,10 @@ get_lan_ip() {
 # ── Export env vars ────────────────────────────────────────────────
 export SKYEAI_MODEL_PATH="$MODEL_PATH"
 export SKYEAI_MEMORY_PATH="$MODELS_DIR/memory.md"
-# Keep Haven-named vars for backward compat with app.py
 export HAVEN_MODEL_PATH="$MODEL_PATH"
 export HAVEN_MEMORY_PATH="$MODELS_DIR/memory.md"
 
 # ── Cookie secret ──────────────────────────────────────────────────
-# Generated once and persisted to server/.cookie_secret so browser
-# sessions survive server restarts. Never committed to git.
 COOKIE_SECRET_FILE="$SERVER_DIR/.cookie_secret"
 if [ ! -f "$COOKIE_SECRET_FILE" ]; then
     python3 -c "import secrets; print(secrets.token_hex(32))" > "$COOKIE_SECRET_FILE"
@@ -206,6 +214,7 @@ if [ "$HOST" = "0.0.0.0" ]; then
 fi
 echo ""
 echo -e "  ${BOLD}Model:${RESET}   $MODEL_FILE"
+echo -e "  ${BOLD}Jinja:${RESET}   $([ "$USE_JINJA" = "1" ] && echo "enabled" || echo "disabled")"
 echo -e "  ${BOLD}Venv:${RESET}    $VENV_DIR"
 echo ""
 echo -e "  Press ${BOLD}Ctrl+C${RESET} to stop"
