@@ -677,6 +677,15 @@ install_deps() {
                 "$PIP" install numpy     --quiet 2>/dev/null && ok "numpy installed"     || warn "numpy install failed"
             }
 
+        # Pre-cache Whisper base model now so it never downloads at runtime.
+        # Without this, Whisper silently phones home to HF Hub on first use.
+        echo ""
+        echo -e "  ${CYAN}→${RESET}  Pre-caching Whisper 'base' model (~140 MB from openai/whisper)..."
+        echo -e "  ${DIM}     This is the only external call Skye-AI makes to Hugging Face.${RESET}"
+        "$PYTHON" -c "import whisper; whisper.load_model('base')" 2>/dev/null \
+            && ok "Whisper base model cached (~/.cache/whisper/)" \
+            || warn "Whisper pre-cache failed — model will download on first voice use instead."
+
         ok "TTS/STT setup complete"
     fi
 }
