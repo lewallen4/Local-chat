@@ -622,7 +622,7 @@ install_deps() {
 
     _INSTALL_TTS=true
     if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-        if ! ask "Install TTS/STT support now?"; then
+        if ! ask "Install voice support (TTS + STT + ffmpeg)?"; then
             _INSTALL_TTS=false
             warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
         fi
@@ -631,45 +631,51 @@ install_deps() {
     fi
 
     if [ "$_INSTALL_TTS" = true ]; then
+        echo ""
+        echo -e "  ${CYAN}→${RESET}  Installing all voice dependencies..."
 
+        # ffmpeg — system package, install silently
         if command -v ffmpeg >/dev/null 2>&1; then
             ok "ffmpeg already installed"
         else
-            echo -e "  ${CYAN}→${RESET}  Installing ffmpeg (required for Whisper STT)..."
-            if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-                if ask "Install ffmpeg now?"; then
-                    install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
+            case "$PM" in
+                apt)
+                    sudo apt-get update -qq 2>/dev/null
+                    sudo apt-get install -y ffmpeg --quiet 2>/dev/null \
                         && ok "ffmpeg installed" \
                         || warn "ffmpeg install failed — STT may not work. Try: sudo apt install ffmpeg"
-                else
-                    warn "Skipped ffmpeg — voice input will not work without it."
-                fi
-            else
-                install_pkg "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" "ffmpeg" \
-                    && ok "ffmpeg installed" \
-                    || warn "ffmpeg install failed — STT may not work."
-            fi
+                    ;;
+                dnf|yum)
+                    sudo "$PM" install -y ffmpeg 2>/dev/null \
+                        && ok "ffmpeg installed" \
+                        || warn "ffmpeg install failed — STT may not work."
+                    ;;
+                brew)
+                    brew install ffmpeg 2>/dev/null \
+                        && ok "ffmpeg installed" \
+                        || warn "ffmpeg install failed — STT may not work."
+                    ;;
+                *)
+                    warn "Could not auto-install ffmpeg — install it manually for STT support."
+                    ;;
+            esac
         fi
 
-        echo -e "  ${CYAN}→${RESET}  Installing kokoro (TTS engine)..."
-        "$PIP" install kokoro --quiet \
-            && ok "kokoro installed" \
-            || warn "kokoro install failed"
-
-        echo -e "  ${CYAN}→${RESET}  Installing soundfile..."
-        "$PIP" install soundfile --quiet \
-            && ok "soundfile installed" \
-            || warn "soundfile install failed"
-
-        echo -e "  ${CYAN}→${RESET}  Installing openai-whisper (STT engine — may take a moment)..."
-        "$PIP" install openai-whisper --quiet \
-            && ok "openai-whisper installed" \
-            || warn "openai-whisper install failed"
-
-        echo -e "  ${CYAN}→${RESET}  Installing numpy..."
-        "$PIP" install numpy --quiet \
-            && ok "numpy installed" \
-            || warn "numpy install failed"
+        # Python voice packages — all in one pip call for speed
+        "$PIP" install \
+            kokoro \
+            soundfile \
+            openai-whisper \
+            numpy \
+            --quiet \
+            && ok "Voice packages installed (kokoro, soundfile, whisper, numpy)" \
+            || {
+                warn "Batch install failed — retrying packages individually..."
+                "$PIP" install kokoro    --quiet 2>/dev/null && ok "kokoro installed"    || warn "kokoro install failed"
+                "$PIP" install soundfile --quiet 2>/dev/null && ok "soundfile installed" || warn "soundfile install failed"
+                "$PIP" install openai-whisper --quiet 2>/dev/null && ok "openai-whisper installed" || warn "openai-whisper install failed"
+                "$PIP" install numpy     --quiet 2>/dev/null && ok "numpy installed"     || warn "numpy install failed"
+            }
 
         ok "TTS/STT setup complete"
     fi
