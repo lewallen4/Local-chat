@@ -128,7 +128,9 @@ ok "Model: $MODEL_FILE (${MODEL_MB} MB)"
 # granitehybrid (4.0 H) and granite (4.1) are both handled correctly.
 detect_model_family() {
     local f="${1,,}"
-    if [[ "$f" == *"granite-4.0-h"* || "$f" == *"granitehybrid"* ]]; then
+    if [[ "$f" == *"nemotron-3-nano"* || "$f" == *"nemotron-3-super"* || "$f" == *"nemotron_h"* ]]; then
+        echo "NVIDIA Nemotron 3 (nemotron_h_moe)"
+    elif [[ "$f" == *"granite-4.0-h"* || "$f" == *"granitehybrid"* ]]; then
         echo "IBM Granite 4.0 H (granitehybrid)"
     elif [[ "$f" == *"granite-4.1"* ]]; then
         echo "IBM Granite 4.1"
@@ -149,10 +151,10 @@ ok "Model family: $MODEL_FAMILY"
 export SKYEAI_USE_JINJA="0"
 
 # ── Context window sizing ─────────────────────────────────────────
-# Granite 4.0 H models use a hybrid Mamba-2 + transformer architecture
-# (9:1 ratio) that scales near-linearly with context length, validated
-# to 128K. We default to 32K for them — generous headroom for RAG with
-# many retrieved chunks plus conversation history.
+# Granite 4.0 H and Nemotron 3 Nano both use Mamba-2 + transformer hybrid
+# architectures that scale near-linearly with context length. We default
+# to 32K for them — generous headroom for RAG with many retrieved chunks
+# plus conversation history.
 #
 # For pure-transformer models (Llama, Mistral, Qwen, Gemma, DeepSeek)
 # the KV cache grows quadratically — staying at 8K avoids prefill
@@ -161,9 +163,11 @@ export SKYEAI_USE_JINJA="0"
 # Override via env: SKYEAI_N_CTX=16384 bash run.sh
 if [ -z "${SKYEAI_N_CTX:-}" ]; then
     if [[ "$MODEL_FAMILY" == *"Granite 4.0 H"* ]] || \
-       [[ "${MODEL_FILE,,}" == *"granite-4.0-h"* ]]; then
+       [[ "${MODEL_FILE,,}" == *"granite-4.0-h"* ]] || \
+       [[ "$MODEL_FAMILY" == *"Nemotron 3"* ]] || \
+       [[ "${MODEL_FILE,,}" == *"nemotron-3"* ]]; then
         SKYEAI_N_CTX="32768"
-        ok "Context window: 32K  (Granite 4.0 H — Mamba-hybrid scales cheaply)"
+        ok "Context window: 32K  (Mamba-hybrid model — scales near-linearly with context)"
     else
         SKYEAI_N_CTX="8192"
         ok "Context window: 8K   (transformer-only model — quadratic KV scaling)"
