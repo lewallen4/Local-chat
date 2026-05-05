@@ -11,6 +11,22 @@ so memory.md always gets something written.
 
 from typing import List, Dict
 from datetime import datetime
+import re
+
+
+def _strip_think_blocks_for_summary(text: str) -> str:
+    """
+    Strip reasoning/thinking traces from assistant turns before summarizing.
+    Reasoning is internal to the model and shouldn't appear in session
+    summaries — it's also a common source of role-confusion since it can
+    contain phrases like "the user wants..." that the summarizer mistakes
+    for actual user statements.
+    """
+    text = re.sub(r"<\|channel>thought[\s\S]*?<channel\|>", "", text)
+    text = re.sub(r"<thought>[\s\S]*?</thought>", "", text)
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text)
+    text = re.sub(r"</?(thought|think)>", "", text)
+    return text.strip()
 
 
 # ── Summary prompt ──────────────────────────────────────────────────
@@ -18,8 +34,14 @@ from datetime import datetime
 # Short enough to reinject into future system prompts without bloat.
 
 SUMMARY_PROMPT_TEMPLATE = """\
-Below is a transcript of a chat session.
-Write a 1–3 sentence summary capturing only the key facts, decisions, or requests.
+Below is a transcript of a chat session between a USER (a human) and the AI ASSISTANT.
+Each line is clearly labeled with who said it.
+
+Write a 1-3 sentence summary of the session. Capture only the key facts,
+decisions, or requests. Be careful to attribute statements correctly:
+the USER asked the questions and made the requests; the AI ASSISTANT
+gave the answers and explanations. Do not flip these.
+
 Do NOT use bullet points. Write plain prose sentences only.
 If nothing notable happened, write: No notable content.
 
@@ -81,14 +103,22 @@ class SessionSummarizer:
         if self._model is None:
             return fallback
 
-        # Build a compact transcript using neutral labels
+        # Build a compact transcript using clear, unambiguous labels.
+        # Earlier versions used "Person:" / "AI:" which the model sometimes
+        # confused, attributing assistant statements to the user. The
+        # all-caps role names plus brackets are visually distinct enough
+        # that the model gets attribution right.
         user_lines = []
         for m in messages:
-            role_label = "Person" if m["role"] == "user" else "AI"
+            role_label = "[USER]" if m["role"] == "user" else "[AI ASSISTANT]"
             content = m["content"].strip()
+            # Strip thinking blocks from assistant turns so they don't
+            # leak into the summary or confuse role attribution.
+            if m["role"] != "user":
+                content = _strip_think_blocks_for_summary(content)
             if len(content) > 300:
                 content = content[:300] + "…"
-            user_lines.append(f"{role_label}: {content}")
+            user_lines.append(f"{role_label} {content}")
 
         if not user_lines:
             return fallback
@@ -117,7 +147,6 @@ class SessionSummarizer:
         )
 
         # Split on sentence boundaries, keep first 3
-        import re
         sentences = re.split(r'(?<=[.!?])\s+', cleaned)
         sentences = [s.strip() for s in sentences if s.strip()]
         if not sentences:
@@ -150,4 +179,3 @@ class SessionSummarizer:
             return f"Session with {count} messages, starting with: {preview}"
 
         return f"Session with {count} messages."
-
