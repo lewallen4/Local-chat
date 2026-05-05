@@ -794,11 +794,18 @@ EOF
 }
 
 # ── Model acquisition ─────────────────────────────────────────────
-# Default: IBM Granite 4.0 H Tiny (chat) + Granite Embedding 30M (RAG).
-# Both are pulled from official IBM repos. Skipped if files already exist.
-CHAT_MODEL_URL="https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf"
+# Primary default: NVIDIA Nemotron 3 Nano 30B-A3B (chat) — best-in-class
+# American MoE for RAG-grounded Q&A on CPU as of December 2025.
+# Fallback: IBM Granite 4.0 H Tiny if user declines the larger download.
+# Embedding companion: Granite Embedding 30M English (RAG vectorizer).
+# All pulled from official/Unsloth repos. Skipped if files already exist.
+CHAT_MODEL_URL="https://huggingface.co/unsloth/Nemotron-3-Nano-30B-A3B-GGUF/resolve/main/Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
 CHAT_MODEL_FILE="model.gguf"
-CHAT_MODEL_LABEL="Granite 4.0 H Tiny (Q4_K_M, ~4.4 GB)"
+CHAT_MODEL_LABEL="Nemotron 3 Nano 30B-A3B (UD-Q4_K_XL, ~22.8 GB)"
+
+# Fallback model — used if user declines the Nemotron download
+FALLBACK_MODEL_URL="https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf"
+FALLBACK_MODEL_LABEL="Granite 4.0 H Tiny (Q4_K_M, ~4.4 GB)"
 
 EMB_MODEL_URL="https://huggingface.co/lmstudio-community/granite-embedding-30m-english-GGUF/resolve/main/granite-embedding-30m-english-Q4_K_M.gguf"
 EMB_MODEL_FILE="granite-embedding-30m-english.gguf"
@@ -838,25 +845,60 @@ check_model() {
     else
         echo ""
         echo -e "  ${CYAN}→${RESET}  No chat model found. Recommended: ${BOLD}${CHAT_MODEL_LABEL}${RESET}"
-        echo -e "  ${DIM}     RAG-optimized hybrid Mamba MoE — fast on CPU, validated to 128K context.${RESET}"
+        echo -e "  ${DIM}     NVIDIA's Dec 2025 hybrid Mamba-MoE — best-in-class American open-weight${RESET}"
+        echo -e "  ${DIM}     for RAG-grounded chat. 30B total / 3.5B active params, 128K context.${RESET}"
+        echo -e "  ${DIM}     Larger download (~22.8 GB) but ~2x faster than Granite Small at higher quality.${RESET}"
         echo ""
-        local DO_PULL=true
+
+        local CHOSEN_URL=""
+        local CHOSEN_LABEL=""
+        local CHOSEN_RECEIPT_NAME=""
+
         if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
-            if ! ask "Download it now? (~4.4 GB)"; then
-                DO_PULL=false
-                warn "Skipped chat model. Run bash gui_model_pull.sh later."
-                receipt_set "Chat model" "skip" "user declined"
+            # Interactive: offer Nemotron first, fallback to Granite Tiny
+            if ask "Download Nemotron 3 Nano now? (~22.8 GB)"; then
+                CHOSEN_URL="$CHAT_MODEL_URL"
+                CHOSEN_LABEL="$CHAT_MODEL_LABEL"
+                CHOSEN_RECEIPT_NAME="Nemotron 3 Nano 30B-A3B"
+            else
+                echo ""
+                echo -e "  ${CYAN}→${RESET}  Smaller alternative: ${BOLD}${FALLBACK_MODEL_LABEL}${RESET}"
+                echo -e "  ${DIM}     IBM's Oct 2025 hybrid MoE — smaller, faster, RAG-optimized.${RESET}"
+                echo ""
+                if ask "Download Granite 4.0 H Tiny instead? (~4.4 GB)"; then
+                    CHOSEN_URL="$FALLBACK_MODEL_URL"
+                    CHOSEN_LABEL="$FALLBACK_MODEL_LABEL"
+                    CHOSEN_RECEIPT_NAME="Granite 4.0 H Tiny"
+                else
+                    warn "Skipped chat model. Run bash gui_model_pull.sh later."
+                    receipt_set "Chat model" "skip" "user declined"
+                fi
             fi
         else
-            echo -e "  ${CYAN}→${RESET}  Non-interactive shell — downloading automatically..."
+            # Non-interactive (CI): default to the smaller, faster Granite Tiny
+            # — auto-pulling 22GB in CI is rude. Users can override by setting
+            # SKYEAI_AUTO_NEMOTRON=1 if they really want the big model.
+            echo -e "  ${CYAN}→${RESET}  Non-interactive shell detected."
+            if [ "${SKYEAI_AUTO_NEMOTRON:-0}" = "1" ]; then
+                echo -e "  ${CYAN}→${RESET}  SKYEAI_AUTO_NEMOTRON=1 — downloading Nemotron automatically..."
+                CHOSEN_URL="$CHAT_MODEL_URL"
+                CHOSEN_LABEL="$CHAT_MODEL_LABEL"
+                CHOSEN_RECEIPT_NAME="Nemotron 3 Nano 30B-A3B"
+            else
+                echo -e "  ${CYAN}→${RESET}  Defaulting to Granite 4.0 H Tiny (smaller, ~4.4 GB)."
+                echo -e "  ${DIM}     Set SKYEAI_AUTO_NEMOTRON=1 to auto-pull the larger Nemotron instead.${RESET}"
+                CHOSEN_URL="$FALLBACK_MODEL_URL"
+                CHOSEN_LABEL="$FALLBACK_MODEL_LABEL"
+                CHOSEN_RECEIPT_NAME="Granite 4.0 H Tiny"
+            fi
         fi
 
-        if [ "$DO_PULL" = true ]; then
+        if [ -n "$CHOSEN_URL" ]; then
             echo ""
-            if _download "$CHAT_MODEL_URL" "$MODELS_DIR/$CHAT_MODEL_FILE" "$CHAT_MODEL_LABEL"; then
+            if _download "$CHOSEN_URL" "$MODELS_DIR/$CHAT_MODEL_FILE" "$CHOSEN_LABEL"; then
                 local SIZE=$(du -h "$MODELS_DIR/$CHAT_MODEL_FILE" 2>/dev/null | cut -f1)
                 ok "Chat model downloaded: $CHAT_MODEL_FILE ($SIZE)"
-                receipt_set "Chat model" "ok" "Granite 4.0 H Tiny"
+                receipt_set "Chat model" "ok" "$CHOSEN_RECEIPT_NAME"
             else
                 local rc=$?
                 rm -f "$MODELS_DIR/$CHAT_MODEL_FILE"
