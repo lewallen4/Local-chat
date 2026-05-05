@@ -158,9 +158,14 @@ class ModelLoader:
             print(f"Loading model with llama.cpp: {self.model_path}")
             try:
                 _cpu_count = os.cpu_count() or 4
+                # Default context is 32K — works well for Granite 4.0 H Tiny/Small
+                # (hybrid Mamba + transformer, near-linear scaling) and is fine on
+                # transformer-only models too at the cost of more RAM. Override
+                # via env var if you're running a model that can't handle it.
+                _n_ctx = int(os.environ.get("SKYEAI_N_CTX", "32768"))
                 self.model = llama_cpp.Llama(
                     model_path=str(self.model_path),
-                    n_ctx=4096,
+                    n_ctx=_n_ctx,
                     n_threads=_cpu_count,
                     n_threads_batch=_cpu_count,
                     n_batch=2048,
