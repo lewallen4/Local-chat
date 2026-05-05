@@ -24,6 +24,34 @@ MODELS_DIR="$SERVER_DIR/models"
 VENV_DIR="$HOME/.skyeai-venv"
 SETUP_OK=true
 
+# ── Receipt tracker ────────────────────────────────────────────────
+# Keys are pretty labels, values are status emoji + text.
+# The receipt printer reads these at the end to compose the summary.
+declare -A RECEIPT
+RECEIPT_ORDER=()
+
+receipt_set() {
+    local key="$1"
+    local status="$2"  # "ok", "warn", "skip", "fail"
+    local detail="${3:-}"
+    if [ -z "${RECEIPT[$key]+set}" ]; then
+        RECEIPT_ORDER+=("$key")
+    fi
+    RECEIPT[$key]="${status}|${detail}"
+}
+
+# Print the receipt no matter how setup ends — clean exit, die(), or Ctrl-C.
+# `_RECEIPT_PRINTED` guards against double-printing when the main flow's
+# explicit `finish` call runs to completion.
+_RECEIPT_PRINTED=false
+_print_receipt_once() {
+    if [ "$_RECEIPT_PRINTED" = false ] && type finish >/dev/null 2>&1; then
+        _RECEIPT_PRINTED=true
+        finish
+    fi
+}
+trap _print_receipt_once EXIT
+
 # PYTHON_TARGET is set dynamically after resolve_python() runs.
 # It will reflect whatever version was actually found/installed.
 PYTHON_TARGET=""
@@ -42,7 +70,15 @@ banner() {
 step()  { echo -e "\n${CYAN}▶${RESET} ${BOLD}$1${RESET}"; }
 ok()    { echo -e "  ${GREEN}✓${RESET}  $1"; }
 warn()  { echo -e "  ${YELLOW}⚠${RESET}   $1"; }
-die()   { echo -e "\n${RED}✗ Fatal:${RESET} $1\n"; exit 1; }
+die()   {
+    # Hard fatal — record in receipt, then exit. The EXIT trap will still
+    # print the receipt before the shell terminates.
+    receipt_set "Fatal" "fail" "$1"
+    SETUP_OK=false
+    echo -e "\n${RED}✗ Fatal:${RESET} $1\n"
+    echo -e "${DIM}    The receipt below shows what was installed before this failure.${RESET}"
+    exit 1
+}
 fail()  { echo -e "  ${RED}✗${RESET}  $1"; SETUP_OK=false; }
 ask()   {
     if [ ! -t 0 ] || [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
@@ -192,6 +228,7 @@ resolve_python() {
         PYTHON_BIN="$PREFERRED_BIN"
         PYTHON_TARGET="3.12"
         ok "Found Python 3.12 at $PYTHON_BIN"
+        receipt_set "Python" "ok" "3.12"
         return 0
     fi
 
@@ -206,6 +243,7 @@ resolve_python() {
                 PYTHON_BIN="$FOUND_BIN"
                 PYTHON_TARGET="$FOUND_VER"
                 ok "Using Python ${FOUND_VER} at $PYTHON_BIN"
+                receipt_set "Python" "warn" "$FOUND_VER (3.12 recommended)"
                 return 0
             fi
             echo ""
@@ -242,12 +280,16 @@ resolve_python() {
         warn "No usable Python (3.8+) found on this machine."
         if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
             if ! ask "Attempt to install Python 3.12?"; then
+                receipt_set "Python" "fail" "not found, user declined install"
                 die "Python is required. Install it manually and re-run."
             fi
         else
             echo -e "  ${CYAN}→${RESET}  Non-interactive: installing Python 3.12..."
         fi
-        _install_python312 || die "Could not install Python. Install it manually and re-run."
+        if ! _install_python312; then
+            receipt_set "Python" "fail" "auto-install failed"
+            die "Could not install Python. Install it manually and re-run."
+        fi
         return 0
     fi
 }
@@ -477,6 +519,7 @@ _create_venv() {
     # First attempt — straightforward
     if "$PYTHON_BIN" -m venv "$VENV_DIR" 2>/dev/null; then
         ok "Virtualenv created at $VENV_DIR"
+        receipt_set "Virtualenv" "ok" "$VENV_DIR"
         return 0
     fi
 
@@ -540,7 +583,10 @@ setup_venv() {
     step "Setting up virtual environment (Python $PYTHON_TARGET)"
 
     if [ ! -d "$VENV_DIR" ]; then
-        _create_venv || die "Failed to create virtualenv. See warnings above."
+        if ! _create_venv; then
+            receipt_set "Virtualenv" "fail" "could not create"
+            die "Failed to create virtualenv. See warnings above."
+        fi
     else
         local venv_ver
         venv_ver=$("$VENV_DIR/bin/python" -c \
@@ -552,7 +598,10 @@ setup_venv() {
         else
             warn "Existing venv is Python $venv_ver, target is $PYTHON_TARGET. Recreating..."
             rm -rf "$VENV_DIR"
-            _create_venv || die "Failed to recreate virtualenv."
+            if ! _create_venv; then
+                receipt_set "Virtualenv" "fail" "recreate failed"
+                die "Failed to recreate virtualenv."
+            fi
         fi
     fi
 
@@ -562,7 +611,7 @@ setup_venv() {
     if [ ! -f "$PIP" ]; then
         warn "pip missing from virtualenv — bootstrapping..."
         bootstrap_pip "$PYTHON" \
-            || die "Could not bootstrap pip. Delete $VENV_DIR and re-run."
+            || { receipt_set "pip bootstrap" "fail" "could not install pip"; die "Could not bootstrap pip. Delete $VENV_DIR and re-run."; }
     fi
 
     "$PIP" install --upgrade pip --quiet 2>/dev/null \
@@ -586,12 +635,13 @@ install_deps() {
         aiofiles \
         itsdangerous \
         --quiet \
-        && ok "FastAPI stack installed" \
-        || fail "FastAPI stack installation failed. Check your network connection."
+        && { ok "FastAPI stack installed"; receipt_set "FastAPI stack" "ok"; } \
+        || { fail "FastAPI stack installation failed. Check your network connection."; receipt_set "FastAPI stack" "fail"; }
 
     # llama-cpp-python
     if "$PYTHON" -c "import llama_cpp" 2>/dev/null; then
         ok "llama-cpp-python already installed — skipping"
+        receipt_set "llama-cpp-python" "ok" "already installed"
     else
         echo ""
         echo -e "  ${CYAN}→${RESET}  Installing llama-cpp-python..."
@@ -599,20 +649,27 @@ install_deps() {
         echo ""
         if "$PIP" install llama-cpp-python --quiet 2>/dev/null; then
             ok "llama-cpp-python installed (pre-built wheel)"
+            receipt_set "llama-cpp-python" "ok" "pre-built wheel"
         else
             warn "Pre-built wheel unavailable — building from source (requires cmake + g++)."
             echo ""
             CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" \
                 "$PIP" install llama-cpp-python --no-cache-dir \
-                && ok "llama-cpp-python built from source" \
+                && { ok "llama-cpp-python built from source"; receipt_set "llama-cpp-python" "ok" "built from source w/ OpenBLAS"; } \
                 || { fail "llama-cpp-python installation failed."; \
-                     warn "Ensure cmake and g++ are installed, then re-run."; }
+                     warn "Ensure cmake and g++ are installed, then re-run."; \
+                     receipt_set "llama-cpp-python" "fail" "build failed (need cmake + g++)"; }
         fi
     fi
 
     "$PIP" install sentencepiece --quiet 2>/dev/null \
-        && ok "sentencepiece installed" \
-        || warn "sentencepiece skipped (optional)"
+        && { ok "sentencepiece installed"; receipt_set "sentencepiece" "ok"; } \
+        || { warn "sentencepiece skipped (optional)"; receipt_set "sentencepiece" "skip" "optional"; }
+
+    # numpy is required by knowledge_base.py vectorized search
+    "$PIP" install "numpy>=1.26.0" --quiet 2>/dev/null \
+        && { ok "numpy installed"; receipt_set "numpy" "ok"; } \
+        || { fail "numpy install failed — RAG search will be slow"; receipt_set "numpy" "fail"; }
 
     # ── Optional: TTS + STT ────────────────────────────────────────
     echo ""
@@ -625,6 +682,7 @@ install_deps() {
         if ! ask "Install voice support (TTS + STT + ffmpeg)?"; then
             _INSTALL_TTS=false
             warn "Skipped — run bash tts_model_pull.sh any time to add voice support."
+            receipt_set "Voice (TTS/STT)" "skip" "user declined"
         fi
     else
         echo -e "  ${CYAN}→${RESET}  Non-interactive shell — installing TTS/STT automatically..."
@@ -637,26 +695,40 @@ install_deps() {
         # ffmpeg — system package, install silently
         if command -v ffmpeg >/dev/null 2>&1; then
             ok "ffmpeg already installed"
+            receipt_set "ffmpeg" "ok" "already installed"
         else
             case "$PM" in
                 apt)
                     sudo apt-get update -qq 2>/dev/null
-                    sudo apt-get install -y ffmpeg --quiet 2>/dev/null \
-                        && ok "ffmpeg installed" \
-                        || warn "ffmpeg install failed — STT may not work. Try: sudo apt install ffmpeg"
+                    if sudo apt-get install -y ffmpeg --quiet 2>/dev/null; then
+                        ok "ffmpeg installed"
+                        receipt_set "ffmpeg" "ok"
+                    else
+                        warn "ffmpeg install failed — STT may not work. Try: sudo apt install ffmpeg"
+                        receipt_set "ffmpeg" "warn" "install failed (STT will not work)"
+                    fi
                     ;;
                 dnf|yum)
-                    sudo "$PM" install -y ffmpeg 2>/dev/null \
-                        && ok "ffmpeg installed" \
-                        || warn "ffmpeg install failed — STT may not work."
+                    if sudo "$PM" install -y ffmpeg 2>/dev/null; then
+                        ok "ffmpeg installed"
+                        receipt_set "ffmpeg" "ok"
+                    else
+                        warn "ffmpeg install failed — STT may not work."
+                        receipt_set "ffmpeg" "warn" "install failed"
+                    fi
                     ;;
                 brew)
-                    brew install ffmpeg 2>/dev/null \
-                        && ok "ffmpeg installed" \
-                        || warn "ffmpeg install failed — STT may not work."
+                    if brew install ffmpeg 2>/dev/null; then
+                        ok "ffmpeg installed"
+                        receipt_set "ffmpeg" "ok"
+                    else
+                        warn "ffmpeg install failed — STT may not work."
+                        receipt_set "ffmpeg" "warn" "install failed"
+                    fi
                     ;;
                 *)
                     warn "Could not auto-install ffmpeg — install it manually for STT support."
+                    receipt_set "ffmpeg" "warn" "no supported package manager"
                     ;;
             esac
         fi
@@ -668,13 +740,19 @@ install_deps() {
             openai-whisper \
             numpy \
             --quiet \
-            && ok "Voice packages installed (kokoro, soundfile, whisper, numpy)" \
+            && { ok "Voice packages installed (kokoro, soundfile, whisper, numpy)"; receipt_set "Voice (TTS/STT)" "ok"; } \
             || {
                 warn "Batch install failed — retrying packages individually..."
-                "$PIP" install kokoro    --quiet 2>/dev/null && ok "kokoro installed"    || warn "kokoro install failed"
-                "$PIP" install soundfile --quiet 2>/dev/null && ok "soundfile installed" || warn "soundfile install failed"
-                "$PIP" install openai-whisper --quiet 2>/dev/null && ok "openai-whisper installed" || warn "openai-whisper install failed"
-                "$PIP" install numpy     --quiet 2>/dev/null && ok "numpy installed"     || warn "numpy install failed"
+                _voice_partial=true
+                "$PIP" install kokoro    --quiet 2>/dev/null && ok "kokoro installed"    || { warn "kokoro install failed"; _voice_partial=false; }
+                "$PIP" install soundfile --quiet 2>/dev/null && ok "soundfile installed" || { warn "soundfile install failed"; _voice_partial=false; }
+                "$PIP" install openai-whisper --quiet 2>/dev/null && ok "openai-whisper installed" || { warn "openai-whisper install failed"; _voice_partial=false; }
+                "$PIP" install numpy     --quiet 2>/dev/null && ok "numpy installed"     || { warn "numpy install failed"; _voice_partial=false; }
+                if [ "$_voice_partial" = true ]; then
+                    receipt_set "Voice (TTS/STT)" "ok" "individual installs"
+                else
+                    receipt_set "Voice (TTS/STT)" "warn" "some packages missing"
+                fi
             }
 
         # Pre-cache Whisper base model now so it never downloads at runtime.
@@ -683,8 +761,8 @@ install_deps() {
         echo -e "  ${CYAN}→${RESET}  Pre-caching Whisper 'base' model (~140 MB from openai/whisper)..."
         echo -e "  ${DIM}     This is the only external call Skye-AI makes to Hugging Face.${RESET}"
         "$PYTHON" -c "import whisper; whisper.load_model('base')" 2>/dev/null \
-            && ok "Whisper base model cached (~/.cache/whisper/)" \
-            || warn "Whisper pre-cache failed — model will download on first voice use instead."
+            && { ok "Whisper base model cached (~/.cache/whisper/)"; receipt_set "Whisper cache" "ok" "base model"; } \
+            || { warn "Whisper pre-cache failed — model will download on first voice use instead."; receipt_set "Whisper cache" "warn" "deferred"; }
 
         ok "TTS/STT setup complete"
     fi
@@ -697,6 +775,7 @@ setup_dirs() {
     mkdir -p "$MODELS_DIR"          && ok "server/models/ ready"
     mkdir -p "$SERVER_DIR/sessions" && ok "server/sessions/ ready"
     mkdir -p "$SERVER_DIR/users"    && ok "server/users/ ready"
+    receipt_set "Directories" "ok"
 
     if [ ! -f "$MODELS_DIR/memory.md" ]; then
         cat > "$MODELS_DIR/memory.md" << 'EOF'
@@ -714,49 +793,225 @@ EOF
     fi
 }
 
-# ── Model check ────────────────────────────────────────────────────
-check_model() {
-    step "Checking for model file"
+# ── Model acquisition ─────────────────────────────────────────────
+# Default: IBM Granite 4.0 H Tiny (chat) + Granite Embedding 30M (RAG).
+# Both are pulled from official IBM repos. Skipped if files already exist.
+CHAT_MODEL_URL="https://huggingface.co/ibm-granite/granite-4.0-h-tiny-GGUF/resolve/main/granite-4.0-h-tiny-Q4_K_M.gguf"
+CHAT_MODEL_FILE="model.gguf"
+CHAT_MODEL_LABEL="Granite 4.0 H Tiny (Q4_K_M, ~4.4 GB)"
 
-    FOUND=0
-    for f in "$MODELS_DIR"/*.gguf "$MODELS_DIR"/*.model; do
-        [ -f "$f" ] && FOUND=1 && ok "Model found: $(basename "$f")" && break
-    done
+EMB_MODEL_URL="https://huggingface.co/lmstudio-community/granite-embedding-30m-english-GGUF/resolve/main/granite-embedding-30m-english-Q4_K_M.gguf"
+EMB_MODEL_FILE="granite-embedding-30m-english.gguf"
+EMB_MODEL_LABEL="Granite Embedding 30M English (~25 MB)"
 
-    if [ "$FOUND" -eq 0 ]; then
-        echo ""
-        echo -e "  ${YELLOW}⚠  No model file found in server/models/${RESET}"
-        echo ""
-        echo "  Run the model acquisition utility:"
-        echo "  → bash model_pull.sh"
-        echo ""
+_download() {
+    # $1 = URL, $2 = destination path, $3 = pretty label
+    local URL="$1"
+    local DEST="$2"
+    local LABEL="$3"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "$DEST" "$URL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --show-progress -q -O "$DEST" "$URL"
+    else
+        return 99
     fi
 }
 
-# ── Finish ─────────────────────────────────────────────────────────
-finish() {
-    echo ""
-    if [ "$SETUP_OK" = true ]; then
-        echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-        echo -e "${GREEN}${BOLD}║           Setup complete!  ✓             ║${RESET}"
-        echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════╝${RESET}"
-        echo ""
-        echo "  Python:     $PYTHON_TARGET"
-        echo "  Virtualenv: $VENV_DIR"
-        echo ""
-        echo "  Next steps:"
-        echo "  1. bash model_pull.sh   — download a model"
-        echo "  2. bash run.sh          — start the server"
+check_model() {
+    step "Acquiring models"
+
+    # Detect any existing chat model — accept any .gguf that isn't the embedding file
+    EXISTING_CHAT=""
+    for f in "$MODELS_DIR"/*.gguf; do
+        [ -f "$f" ] || continue
+        case "$(basename "$f")" in
+            *embedding*) continue ;;
+            *) EXISTING_CHAT="$f"; break ;;
+        esac
+    done
+
+    if [ -n "$EXISTING_CHAT" ]; then
+        ok "Chat model present: $(basename "$EXISTING_CHAT")"
+        receipt_set "Chat model" "ok" "$(basename "$EXISTING_CHAT")"
     else
-        echo -e "${YELLOW}${BOLD}╔══════════════════════════════════════════╗${RESET}"
-        echo -e "${YELLOW}${BOLD}║      Setup completed with warnings  ⚠   ║${RESET}"
-        echo -e "${YELLOW}${BOLD}╚══════════════════════════════════════════╝${RESET}"
         echo ""
-        echo "  One or more steps did not complete."
-        echo "  Review the warnings above and re-run:  bash setup.sh"
-        echo "  Completed steps will be skipped automatically."
+        echo -e "  ${CYAN}→${RESET}  No chat model found. Recommended: ${BOLD}${CHAT_MODEL_LABEL}${RESET}"
+        echo -e "  ${DIM}     RAG-optimized hybrid Mamba MoE — fast on CPU, validated to 128K context.${RESET}"
+        echo ""
+        local DO_PULL=true
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            if ! ask "Download it now? (~4.4 GB)"; then
+                DO_PULL=false
+                warn "Skipped chat model. Run bash gui_model_pull.sh later."
+                receipt_set "Chat model" "skip" "user declined"
+            fi
+        else
+            echo -e "  ${CYAN}→${RESET}  Non-interactive shell — downloading automatically..."
+        fi
+
+        if [ "$DO_PULL" = true ]; then
+            echo ""
+            if _download "$CHAT_MODEL_URL" "$MODELS_DIR/$CHAT_MODEL_FILE" "$CHAT_MODEL_LABEL"; then
+                local SIZE=$(du -h "$MODELS_DIR/$CHAT_MODEL_FILE" 2>/dev/null | cut -f1)
+                ok "Chat model downloaded: $CHAT_MODEL_FILE ($SIZE)"
+                receipt_set "Chat model" "ok" "Granite 4.0 H Tiny"
+            else
+                local rc=$?
+                rm -f "$MODELS_DIR/$CHAT_MODEL_FILE"
+                if [ "$rc" -eq 99 ]; then
+                    fail "No downloader available — install curl or wget"
+                    receipt_set "Chat model" "fail" "no curl/wget"
+                else
+                    fail "Chat model download failed"
+                    receipt_set "Chat model" "fail" "download error"
+                fi
+            fi
+        fi
+    fi
+
+    # Embedding model
+    if [ -f "$MODELS_DIR/$EMB_MODEL_FILE" ]; then
+        ok "Embedding model present: $EMB_MODEL_FILE"
+        receipt_set "Embedding model" "ok" "$EMB_MODEL_FILE"
+    else
+        echo ""
+        echo -e "  ${CYAN}→${RESET}  No embedding model found. Required for RAG: ${BOLD}${EMB_MODEL_LABEL}${RESET}"
+        echo ""
+        local DO_PULL=true
+        if [ -t 0 ] && [ -z "${CI:-}" ] && [ -z "${GITHUB_ACTIONS:-}" ]; then
+            if ! ask "Download it now? (~25 MB, fast)"; then
+                DO_PULL=false
+                warn "Skipped embedding model. RAG will not work until installed."
+                receipt_set "Embedding model" "skip" "user declined"
+            fi
+        else
+            echo -e "  ${CYAN}→${RESET}  Non-interactive shell — downloading automatically..."
+        fi
+
+        if [ "$DO_PULL" = true ]; then
+            echo ""
+            if _download "$EMB_MODEL_URL" "$MODELS_DIR/$EMB_MODEL_FILE" "$EMB_MODEL_LABEL"; then
+                ok "Embedding model downloaded: $EMB_MODEL_FILE"
+                receipt_set "Embedding model" "ok" "Granite Embedding 30M"
+            else
+                rm -f "$MODELS_DIR/$EMB_MODEL_FILE"
+                fail "Embedding model download failed"
+                receipt_set "Embedding model" "fail" "download error"
+            fi
+        fi
+    fi
+}
+
+# ── Receipt ────────────────────────────────────────────────────────
+# Prints a cute itemized receipt of everything that was attempted,
+# with status icons and any details. Reads from the RECEIPT array
+# populated throughout setup.
+finish() {
+    _RECEIPT_PRINTED=true
+    local W=58  # receipt width
+
+    # Decide overall status from the receipt
+    local total=0 ok_count=0 warn_count=0 fail_count=0 skip_count=0
+    local key status detail
+    for key in "${RECEIPT_ORDER[@]}"; do
+        total=$((total + 1))
+        status="${RECEIPT[$key]%%|*}"
+        case "$status" in
+            ok)   ok_count=$((ok_count + 1)) ;;
+            warn) warn_count=$((warn_count + 1)) ;;
+            fail) fail_count=$((fail_count + 1)) ;;
+            skip) skip_count=$((skip_count + 1)) ;;
+        esac
+    done
+
+    local TIMESTAMP
+    TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+    local HOSTNAME_SHORT
+    HOSTNAME_SHORT=$(hostname 2>/dev/null | cut -d. -f1)
+
+    # ── Header ────────────────────────────────────────
+    echo ""
+    echo -e "${CYAN}${BOLD}      .---------------------------------------------.${RESET}"
+    echo -e "${CYAN}${BOLD}     ( ~ ~ ~ ~ ~ ~  Skye-AI  ~ ~ ~ ~ ~ ~ ~ ~ ~ ~  )${RESET}"
+    echo -e "${CYAN}${BOLD}      \`---------------------------------------------'${RESET}"
+    echo -e "${DIM}                ☕  setup receipt  ☕${RESET}"
+    echo -e "${DIM}                  ${TIMESTAMP}${RESET}"
+    if [ -n "$HOSTNAME_SHORT" ]; then
+        echo -e "${DIM}                  host: ${HOSTNAME_SHORT}${RESET}"
     fi
     echo ""
+    echo -e "${DIM}      ─────────────────────────────────────────${RESET}"
+
+    # ── Itemized list ─────────────────────────────────
+    for key in "${RECEIPT_ORDER[@]}"; do
+        status="${RECEIPT[$key]%%|*}"
+        detail="${RECEIPT[$key]#*|}"
+
+        local icon color label_text
+        case "$status" in
+            ok)   icon="✓"; color="$GREEN";  label_text="installed" ;;
+            warn) icon="!"; color="$YELLOW"; label_text="warning  " ;;
+            fail) icon="✗"; color="$RED";    label_text="failed   " ;;
+            skip) icon="-"; color="$DIM";    label_text="skipped  " ;;
+            *)    icon="?"; color="$DIM";    label_text="unknown  " ;;
+        esac
+
+        # Compose: " icon  Label .................. status"
+        local left="  ${color}${icon}${RESET}  ${BOLD}${key}${RESET}"
+        local right="${color}${label_text}${RESET}"
+
+        # Compute padding for dot-leader between label and status
+        local plain_left_len=$(( ${#key} + 5 ))   # "  X  " = 5 chars
+        local plain_right_len=9                    # status word
+        local dots_len=$(( W - plain_left_len - plain_right_len - 2 ))
+        [ "$dots_len" -lt 2 ] && dots_len=2
+        local dots=""
+        local i
+        for i in $(seq 1 $dots_len); do dots="${dots}."; done
+
+        echo -e "${left} ${DIM}${dots}${RESET} ${right}"
+
+        if [ -n "$detail" ]; then
+            echo -e "      ${DIM}↳ ${detail}${RESET}"
+        fi
+    done
+
+    echo -e "${DIM}      ─────────────────────────────────────────${RESET}"
+
+    # ── Totals ────────────────────────────────────────
+    printf "      ${BOLD}%-12s${RESET} ${GREEN}%2d${RESET} ok   ${YELLOW}%2d${RESET} warn   ${RED}%2d${RESET} fail   ${DIM}%2d skip${RESET}\n" \
+        "subtotal:" "$ok_count" "$warn_count" "$fail_count" "$skip_count"
+    echo ""
+
+    # ── Footer ────────────────────────────────────────
+    if [ "$fail_count" -eq 0 ] && [ "$warn_count" -eq 0 ]; then
+        echo -e "${GREEN}${BOLD}      ┌─────────────────────────────────────────┐${RESET}"
+        echo -e "${GREEN}${BOLD}      │  all good — start the server: ${RESET}${DIM}bash run.sh${RESET}${GREEN}${BOLD}  │${RESET}"
+        echo -e "${GREEN}${BOLD}      └─────────────────────────────────────────┘${RESET}"
+        echo ""
+        echo -e "${DIM}                 ♡  thanks for setting up  ♡${RESET}"
+    elif [ "$fail_count" -eq 0 ]; then
+        echo -e "${YELLOW}${BOLD}      ┌─────────────────────────────────────────┐${RESET}"
+        echo -e "${YELLOW}${BOLD}      │  ready, with caveats — see warnings    │${RESET}"
+        echo -e "${YELLOW}${BOLD}      └─────────────────────────────────────────┘${RESET}"
+        echo ""
+        echo -e "${DIM}        Start anyway:  bash run.sh${RESET}"
+        echo -e "${DIM}        Re-run setup:  bash setup.sh${RESET}"
+    else
+        echo -e "${RED}${BOLD}      ┌─────────────────────────────────────────┐${RESET}"
+        echo -e "${RED}${BOLD}      │  some steps failed — check the list    │${RESET}"
+        echo -e "${RED}${BOLD}      └─────────────────────────────────────────┘${RESET}"
+        echo ""
+        echo -e "${DIM}        Re-run after fixing:  bash setup.sh${RESET}"
+    fi
+    echo ""
+
+    # Internal flag stays in sync with what the receipt shows
+    if [ "$fail_count" -gt 0 ]; then
+        SETUP_OK=false
+    fi
 }
 
 # ── Progress bar ───────────────────────────────────────────────────
@@ -778,7 +1033,7 @@ progress() {
 }
 
 # ── Main ───────────────────────────────────────────────────────────
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 banner
 progress 0 $TOTAL_STEPS "starting up"
@@ -799,5 +1054,7 @@ setup_dirs
 progress 5 $TOTAL_STEPS "directories ready"
 
 check_model
+progress 6 $TOTAL_STEPS "models ready"
+
+progress 7 $TOTAL_STEPS "complete"
 finish
-progress 6 $TOTAL_STEPS "complete"
