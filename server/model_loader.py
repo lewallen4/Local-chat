@@ -41,6 +41,14 @@ STOP_MAP = {
         "\n[INST]", "\n<|user|>",
         "User:", "Human:",
     ],
+    # NVIDIA Nemotron 3 Nano (nemotron_h_moe architecture in GGUF metadata).
+    # ChatML chat template — <|im_start|>/<|im_end|> are the role delimiters.
+    # general.architecture = "nemotron_h_moe"
+    "nemotron_h_moe": [
+        "<|im_end|>",
+        "<|im_start|>user",
+        "<|im_start|>system",
+    ],
     # IBM Granite 4.0 H / hybrid (granitehybrid architecture in GGUF metadata).
     # Uses role-tag chat template identical to Granite 4.1.
     # general.architecture = "granitehybrid"
@@ -92,7 +100,7 @@ def _detect_stop_sequences(model) -> tuple:
         print(f"  ⚠ Could not read model metadata: {e}")
 
     # Match against known architectures (check granitehybrid before granite, gemma4 before gemma)
-    for key in ["gemma4", "gemma", "granitehybrid", "granite", "llama", "mistral"]:
+    for key in ["gemma4", "gemma", "nemotron_h_moe", "granitehybrid", "granite", "llama", "mistral"]:
         if key in arch:
             print(f"  → Detected architecture: {arch} → using '{key}' stop sequences")
             return key, STOP_MAP[key]
