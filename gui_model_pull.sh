@@ -170,6 +170,7 @@ MODEL_LABEL=(
     [17]="DeepSeek R1 Distill  32B  (Qwen)"
     [18]="DeepSeek V3.2  671B  (UD-Q4_K_XL)  ★ multi-file"
     [19]="DeepSeek R1  671B  (Q4_K_M)  ★ multi-file"
+    [20]="NVIDIA Nemotron 3 Nano  (30B/3.5B-active MoE)  ★ NEW"
 )
 
 MODEL_SIZE=(
@@ -192,6 +193,7 @@ MODEL_SIZE=(
     [17]="19.9 GB"
     [18]="~400 GB (8 parts)"
     [19]="~404 GB (9 parts)"
+    [20]="22.8 GB"
 )
 
 MODEL_RAM=(
@@ -214,6 +216,7 @@ MODEL_RAM=(
     [17]="24 GB"
     [18]="256+ GB"
     [19]="256+ GB"
+    [20]="32 GB"
 )
 
 MODEL_URL=(
@@ -236,6 +239,7 @@ MODEL_URL=(
     [17]="https://huggingface.co/unsloth/DeepSeek-R1-Distill-Qwen-32B-GGUF/resolve/main/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf"
     [18]="MULTI_FILE"
     [19]="MULTI_FILE"
+    [20]="https://huggingface.co/unsloth/Nemotron-3-Nano-30B-A3B-GGUF/resolve/main/Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
 )
 
 MODEL_OUTPUT=(
@@ -258,6 +262,7 @@ MODEL_OUTPUT=(
     [17]="model.gguf"
     [18]="MULTI_FILE"
     [19]="MULTI_FILE"
+    [20]="model.gguf"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -272,13 +277,16 @@ echo -e "${CYAN}${BOLD}╚══════════════════
 echo -e "  ${DIM}Q4_K_M  ·  via ${DOWNLOADER}  ·  → ${MODELS_DIR}${RESET}"
 
 # ── Menu ───────────────────────────────────────────────────────────
-sec "IBM  —  Granite 4  [ibm-granite official]  ★ RECOMMENDED"
-row  1 "${MODEL_LABEL[1]}"  "${MODEL_SIZE[1]}"  "${MODEL_RAM[1]}"
-row  2 "${MODEL_LABEL[2]}"  "${MODEL_SIZE[2]}"  "${MODEL_RAM[2]}"
-row  3 "${MODEL_LABEL[3]}"  "${MODEL_SIZE[3]}"  "${MODEL_RAM[3]}"
+sec "NVIDIA  —  Nemotron 3 Nano  [unsloth]  ★ RECOMMENDED"
+row 20 "${MODEL_LABEL[20]}" "${MODEL_SIZE[20]}" "${MODEL_RAM[20]}"
 
 sec "IBM  —  Embeddings  [official]  ★ REQUIRED for RAG"
 row  4 "${MODEL_LABEL[4]}"  "${MODEL_SIZE[4]}"  "${MODEL_RAM[4]}"
+
+sec "IBM  —  Granite 4  [ibm-granite official]"
+row  1 "${MODEL_LABEL[1]}"  "${MODEL_SIZE[1]}"  "${MODEL_RAM[1]}"
+row  2 "${MODEL_LABEL[2]}"  "${MODEL_SIZE[2]}"  "${MODEL_RAM[2]}"
+row  3 "${MODEL_LABEL[3]}"  "${MODEL_SIZE[3]}"  "${MODEL_RAM[3]}"
 
 sec "IBM  —  Granite 3.3  [ibm-granite official]"
 row  5 "${MODEL_LABEL[5]}"  "${MODEL_SIZE[5]}"  "${MODEL_RAM[5]}"
@@ -317,9 +325,9 @@ gap
 
 # ── Validate ───────────────────────────────────────────────────────
 case "$CHOICE" in
-    [1-9]|1[0-9]) ;;
+    [1-9]|1[0-9]|20) ;;
     q|Q) echo -e "  ${DIM}Exiting.${RESET}\n"; exit 0 ;;
-    *) die "Invalid selection. Enter 1–19 or q." ;;
+    *) die "Invalid selection. Enter 1–20 or q." ;;
 esac
 
 KEY="$CHOICE"
@@ -336,6 +344,15 @@ echo -e "  ${BOLD}Size:${RESET}    $SIZE  (${RAM} required)"
 echo -e "  ${BOLD}Output:${RESET}  $DEST"
 echo -e "  ${BOLD}Via:${RESET}     $DOWNLOADER"
 line
+
+if [[ "$KEY" == "20" ]]; then
+    warn "Nemotron 3 Nano — NVIDIA's December 2025 hybrid Mamba-2 + transformer MoE."
+    warn "30B total / 3.5B active. UD-Q4_K_XL ~22.8 GB on disk, ~32 GB RAM at 32K context."
+    warn "Released Dec 2025 — beats Qwen3-30B-A3B and GPT-OSS-20B on Arena-Hard chat."
+    warn "Reasoning is on by default; this server disables it for fast RAG-grounded Q&A."
+    warn "Pair with option [4] (granite-embedding-30m) for the full RAG stack."
+    gap
+fi
 
 if [[ "$KEY" == "1" ]]; then
     warn "Granite 4.0 H Tiny — MoE w/ Mamba-2 + transformer hybrid."
