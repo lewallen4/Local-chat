@@ -148,6 +148,31 @@ MODEL_FAMILY=$(detect_model_family "$MODEL_FILE")
 ok "Model family: $MODEL_FAMILY"
 export SKYEAI_USE_JINJA="0"
 
+# ── Context window sizing ─────────────────────────────────────────
+# Granite 4.0 H models use a hybrid Mamba-2 + transformer architecture
+# (9:1 ratio) that scales near-linearly with context length, validated
+# to 128K. We default to 32K for them — generous headroom for RAG with
+# many retrieved chunks plus conversation history.
+#
+# For pure-transformer models (Llama, Mistral, Qwen, Gemma, DeepSeek)
+# the KV cache grows quadratically — staying at 8K avoids prefill
+# blowing up on a 4-core CPU box.
+#
+# Override via env: SKYEAI_N_CTX=16384 bash run.sh
+if [ -z "${SKYEAI_N_CTX:-}" ]; then
+    if [[ "$MODEL_FAMILY" == *"Granite 4.0 H"* ]] || \
+       [[ "${MODEL_FILE,,}" == *"granite-4.0-h"* ]]; then
+        SKYEAI_N_CTX="32768"
+        ok "Context window: 32K  (Granite 4.0 H — Mamba-hybrid scales cheaply)"
+    else
+        SKYEAI_N_CTX="8192"
+        ok "Context window: 8K   (transformer-only model — quadratic KV scaling)"
+    fi
+else
+    ok "Context window: $SKYEAI_N_CTX  (explicitly set via SKYEAI_N_CTX)"
+fi
+export SKYEAI_N_CTX
+
 # ── Port availability ─────────────────────────────────────────────
 port_in_use() {
     if command -v lsof >/dev/null 2>&1; then
