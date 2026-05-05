@@ -160,6 +160,8 @@ class SessionManager:
             prompt = self._build_gemma4_prompt(system_prompt, memory_block, knowledge_context, recent, thinking, length_hint)
         elif arch in ("granite", "granitehybrid"):
             prompt = self._build_granite_prompt(system_prompt, memory_block, knowledge_context, recent, length_hint)
+        elif arch == "nemotron_h_moe":
+            prompt = self._build_nemotron_prompt(system_prompt, memory_block, knowledge_context, recent, thinking, length_hint)
         else:
             prompt = self._build_default_prompt(system_prompt, memory_block, knowledge_context, recent, length_hint)
 
@@ -252,6 +254,43 @@ class SessionManager:
 
         # Open the assistant turn for generation
         parts.append("<|start_of_role|>assistant<|end_of_role|>")
+
+        return "".join(parts)
+
+    def _build_nemotron_prompt(self, system_prompt: str, memory_block: str, knowledge_context: str, messages: List[Dict], thinking: bool = False, length_hint: str = "") -> str:
+        """
+        NVIDIA Nemotron 3 Nano (nemotron_h_moe) ChatML chat template.
+        Format: <|im_start|>{role}\n{content}<|im_end|>\n
+        Roles: system, user, assistant
+        Reasoning is opt-in via the assistant turn opener — when thinking is
+        disabled we prepend "<think></think>" to the assistant's turn so the
+        model jumps straight to the final answer instead of generating chain-
+        of-thought, matching NVIDIA's recommended non-reasoning behavior.
+        """
+        system_content = system_prompt
+        if length_hint:
+            system_content += f"\n\nRESPONSE STYLE: {length_hint}"
+        if knowledge_context:
+            system_content += "\n\n" + knowledge_context.strip()
+        if memory_block:
+            system_content += "\n\nCONTEXT FROM PREVIOUS SESSIONS:\n" + memory_block
+
+        parts = [f"<|im_start|>system\n{system_content}<|im_end|>\n"]
+
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "assistant"
+            msg_content = msg["content"].strip()
+            if role == "assistant":
+                msg_content = _strip_think_blocks(msg_content)
+            parts.append(f"<|im_start|>{role}\n{msg_content}<|im_end|>\n")
+
+        # Open the assistant turn for generation. If thinking is disabled
+        # we close an empty <think></think> block first so the model knows
+        # not to produce a reasoning trace and goes straight to the answer.
+        if thinking:
+            parts.append("<|im_start|>assistant\n<think>\n")
+        else:
+            parts.append("<|im_start|>assistant\n<think></think>")
 
         return "".join(parts)
 
