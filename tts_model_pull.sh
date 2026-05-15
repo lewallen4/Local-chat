@@ -12,13 +12,13 @@
 
 set -uo pipefail
 
-CYAN='\\033[0;36m'
-GREEN='\\033[0;32m'
-YELLOW='\\033[1;33m'
-RED='\\033[0;31m'
-BOLD='\\033[1m'
-DIM='\\033[2m'
-RESET='\\033[0m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="$HOME/.skyeai-venv"
