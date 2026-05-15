@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +28,21 @@ from knowledge_base import KnowledgeBase
 from logger import log, log_prompt, log_response, log_session, log_knowledge, log_summary, log_error
 from tts_engine import init_tts, init_stt, get_tts, get_stt
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log("INFO", f"Server starting — model={_model_path} arch={model_loader.arch}")
+    await recover_crashed_sessions()
+    knowledge.load_index()
+    if knowledge.ready:
+        log("INFO", f"Knowledge base loaded: {knowledge.chunk_count} chunks")
+    asyncio.create_task(cleanup_stale_sessions())
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(None, lambda: init_tts())
+    loop.run_in_executor(None, lambda: init_stt())
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 # ── Cookie auth ────────────────────────────────────────────────────
 # Secret rotates each restart — fine for our use case since sessions
@@ -35,6 +50,12 @@ app = FastAPI()
 _COOKIE_SECRET = os.environ.get("SKYEAI_COOKIE_SECRET", secrets.token_hex(32))
 _COOKIE_NAME   = "skyeai_uid"
 _COOKIE_MAX_AGE = 60 * 60 * 24  # 24 hours
+# Set SKYEAI_SECURE_COOKIES=1 in production (behind HTTPS/nginx).
+# Leave unset for local HTTP dev.
+_SECURE_COOKIES = os.environ.get("SKYEAI_SECURE_COOKIES", "0") == "1"
+
+if not os.environ.get("SKYEAI_COOKIE_SECRET"):
+    print("⚠  SKYEAI_COOKIE_SECRET not set — cookie secret rotates on restart, logging out all users. Set this env var in production.")
 
 if HAS_ITSDANGEROUS:
     _signer = URLSafeSerializer(_COOKIE_SECRET, salt="skyeai-uid")
@@ -58,6 +79,7 @@ def _set_uid_cookie(response: JSONResponse, user_id: str) -> None:
         value=_sign_user_id(user_id),
         httponly=True,
         samesite="strict",
+        secure=_SECURE_COOKIES,
         max_age=_COOKIE_MAX_AGE,
         path="/",
     )
@@ -117,7 +139,7 @@ SESSIONS_DIR.mkdir(exist_ok=True)
 USER_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{5,5}$")
 
 def validate_user_id(user_id: str) -> bool:
-    """Alphanumeric + underscore/hyphen, 2–32 chars. Keeps filesystem paths safe."""
+    """Exactly 5 alphanumeric characters, hyphens, or underscores."""
     return bool(USER_ID_RE.match(user_id))
 
 
@@ -174,10 +196,21 @@ async def recover_crashed_sessions():
             wal_file.unlink()
             continue
 
-        print(f"  ↩ Recovering {session_id[:8]}… ({len(messages)} messages)")
-
-        # Try to find user_id from first message metadata, else use "unknown"
+        # Extract user_id from the meta entry written at session start, then
+        # strip it so only real messages reach the summarizer.
         user_id = "unknown"
+        for entry in messages:
+            if entry.get("type") == "meta" and entry.get("user_id"):
+                user_id = entry["user_id"]
+                break
+        messages = [m for m in messages if m.get("type") != "meta"]
+
+        if not messages:
+            wal_file.unlink()
+            continue
+
+        print(f"  ↩ Recovering {session_id[:8]}… ({len(messages)} messages, user={user_id})")
+
         session_data = {
             "id": session_id,
             "messages": messages,
@@ -237,24 +270,6 @@ async def cleanup_stale_sessions():
         for sid in stale:
             print(f"Cleaning up stale session: {sid}")
             await end_session(sid)
-
-
-# ── Startup ────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup_event():
-    log("INFO", f"Server starting — model={_model_path} arch={model_loader.arch}")
-    await recover_crashed_sessions()
-    knowledge.load_index()
-    if knowledge.ready:
-        log("INFO", f"Knowledge base loaded: {knowledge.chunk_count} chunks")
-    asyncio.create_task(cleanup_stale_sessions())
-
-    # TTS / STT — optional, non-blocking
-    import asyncio as _aio
-    loop = _aio.get_event_loop()
-    loop.run_in_executor(None, lambda: init_tts())
-    loop.run_in_executor(None, lambda: init_stt())
 
 
 # ── Routes ─────────────────────────────────────────────────────────
@@ -344,7 +359,8 @@ async def start_chat(request: Request):
 
     log_session("start", session_id, user_id, f"seeded={len(seeded)}")
 
-    # Write seeded messages to WAL so crash recovery captures them
+    # First WAL entry is a meta record so crash recovery can attribute the session.
+    wal_append(session_id, {"type": "meta", "user_id": user_id})
     for m in seeded:
         wal_append(session_id, m)
 
@@ -404,11 +420,11 @@ async def rejoin_session(request: Request):
 
     # Load from saved session log
     sm = SessionManager(user_id)
-    log = sm.load_session_log(session_id)
-    if not log:
+    session_log = sm.load_session_log(session_id)
+    if not session_log:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    messages = log.get("messages", [])
+    messages = session_log.get("messages", [])
     global_memory = sm.load_memory()
 
     active_sessions[session_id] = {
@@ -418,11 +434,12 @@ async def rejoin_session(request: Request):
         "messages": messages,
         "context_memory": global_memory,
         "last_active": datetime.now(),
-        "created_at": log.get("created_at", datetime.now().isoformat()),
-        "metadata": log.get("metadata", {}),
+        "created_at": session_log.get("created_at", datetime.now().isoformat()),
+        "metadata": session_log.get("metadata", {}),
     }
 
-    # Re-establish WAL
+    # Re-establish WAL with meta entry so crash recovery can attribute the session.
+    wal_append(session_id, {"type": "meta", "user_id": user_id})
     for m in messages:
         wal_append(session_id, m)
 
