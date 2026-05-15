@@ -19,7 +19,7 @@ RESET='\033[0m'
 HOST="127.0.0.1"
 PORT="8000"
 WORKERS="1"
-MODEL_FILE="model.gguf"
+MODEL_FILE=""
 LOG_LEVEL="info"
 RELOAD="false"
 
@@ -91,13 +91,24 @@ fi
 ok "Virtualenv: $VENV_DIR"
 
 # ── Model file ────────────────────────────────────────────────────
-MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
-if [ ! -f "$MODEL_PATH" ]; then
-    FALLBACK=$(find "$MODELS_DIR" -maxdepth 2 \( -name "*.gguf" -o -name "*.model" \) 2>/dev/null | sort | head -1)
-    if [ -n "$FALLBACK" ]; then
-        MODEL_FILE="$(basename "$FALLBACK")"
-        MODEL_PATH="$FALLBACK"
-        warn "model.gguf not found — using: $MODEL_FILE"
+# If --model was passed, verify that exact file exists.
+# Otherwise, auto-detect: pick the first non-embedding .gguf in models/.
+# This relies on models having their real names (not "model.gguf") so that
+# detect_model_family() below can identify the architecture from the filename.
+_find_chat_model() {
+    find "$MODELS_DIR" -maxdepth 2 \( -name "*.gguf" -o -name "*.model" \) 2>/dev/null \
+        | grep -vi "embedding" | sort | head -1
+}
+
+if [ -n "$MODEL_FILE" ]; then
+    MODEL_PATH="$MODELS_DIR/$MODEL_FILE"
+    if [ ! -f "$MODEL_PATH" ]; then
+        die "Specified model not found: $MODEL_PATH"
+    fi
+else
+    MODEL_PATH=$(_find_chat_model)
+    if [ -n "$MODEL_PATH" ]; then
+        MODEL_FILE="$(basename "$MODEL_PATH")"
     else
         echo ""
         echo -e "  ${RED}✗${RESET} No model file found in server/models/"
@@ -105,13 +116,12 @@ if [ ! -f "$MODEL_PATH" ]; then
         read -rp "  Run model_pull.sh now? (y/N): " _RUN_PULL
         if [[ "$_RUN_PULL" =~ ^[Yy]$ ]]; then
             bash "$SCRIPT_DIR/model_pull.sh" || die "Model download failed."
-            FALLBACK=$(find "$MODELS_DIR" -maxdepth 2 \( -name "*.gguf" -o -name "*.model" \) 2>/dev/null | sort | head -1)
-            [ -n "$FALLBACK" ] || die "No model found after download. Check model_pull.sh output."
-            MODEL_FILE="$(basename "$FALLBACK")"
-            MODEL_PATH="$FALLBACK"
+            MODEL_PATH=$(_find_chat_model)
+            [ -n "$MODEL_PATH" ] || die "No model found after download. Check model_pull.sh output."
+            MODEL_FILE="$(basename "$MODEL_PATH")"
         else
             echo ""
-            echo "  Download a model with:  bash model_pull.sh"
+            echo "  Download a model with:  bash gui_model_pull.sh"
             echo ""
             exit 1
         fi
@@ -219,7 +229,7 @@ get_lan_ip() {
 # Looks for a dedicated small embedding model in models/. RAG queries use
 # this instead of the chat model — the chat model would take 30s+ per
 # embed() call on CPU, the embedding model takes <100ms.
-EMBEDDING_FILE_DEFAULT="granite-embedding-30m-english.gguf"
+EMBEDDING_FILE_DEFAULT="granite-embedding-30m-english-Q4_K_M.gguf"
 EMBEDDING_PATH=""
 EMB_CANDIDATES=$(find "$MODELS_DIR" -maxdepth 2 -iname "*embedding*.gguf" 2>/dev/null | sort)
 if [ -n "$EMB_CANDIDATES" ]; then

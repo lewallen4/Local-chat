@@ -243,26 +243,26 @@ MODEL_URL=(
 )
 
 MODEL_OUTPUT=(
-    [1]="model.gguf"
-    [2]="model.gguf"
-    [3]="model.gguf"
-    [4]="granite-embedding-30m-english.gguf"
-    [5]="model.gguf"
-    [6]="model.gguf"
-    [7]="model.gguf"
-    [8]="model.gguf"
-    [9]="model.gguf"
-    [10]="model.gguf"
-    [11]="model-00001-of-00002.gguf"
-    [12]="model-00002-of-00002.gguf"
-    [13]="model.gguf"
-    [14]="model.gguf"
-    [15]="model.gguf"
-    [16]="model.gguf"
-    [17]="model.gguf"
+    [1]="granite-4.0-h-tiny-Q4_K_M.gguf"
+    [2]="granite-4.0-h-small-Q4_K_M.gguf"
+    [3]="granite-4.0-h-1b-Q4_K_M.gguf"
+    [4]="granite-embedding-30m-english-Q4_K_M.gguf"
+    [5]="granite-3.3-8b-instruct-Q4_K_M.gguf"
+    [6]="granite-4.1-30b-UD-Q4_K_XL.gguf"
+    [7]="Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+    [8]="Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+    [9]="Llama-3.1-8B-Instruct-UD-Q4_K_XL.gguf"
+    [10]="Llama-3.3-70B-Instruct-Q4_K_M.gguf"
+    [11]="Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00001-of-00002.gguf"
+    [12]="Llama-4-Scout-17B-16E-Instruct-Q4_K_M-00002-of-00002.gguf"
+    [13]="Mistral-Small-3.1-24B-Instruct-2503-UD-Q4_K_XL.gguf"
+    [14]="gemma-4-26B-A4B.Q4_K_M.gguf"
+    [15]="gemma-4-31B-it-Q4_K_M.gguf"
+    [16]="DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"
+    [17]="DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf"
     [18]="MULTI_FILE"
     [19]="MULTI_FILE"
-    [20]="model.gguf"
+    [20]="Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf"
 )
 
 # ── Detect downloader ──────────────────────────────────────────────
@@ -368,8 +368,8 @@ fi
 
 if [[ "$KEY" == "4" ]]; then
     warn "Embedding model — NOT a chat model. Used by the RAG pipeline to vectorize"
-    warn "Confluence chunks and queries. Saves to granite-embedding-30m-english.gguf"
-    warn "(not model.gguf). run.sh auto-detects it for SKYEAI_EMBEDDING_MODEL_PATH."
+    warn "Confluence chunks and queries. Saves to granite-embedding-30m-english-Q4_K_M.gguf"
+    warn "run.sh auto-detects it via the *embedding*.gguf filename pattern."
     gap
 fi
 
